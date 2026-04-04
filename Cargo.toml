@@ -1,0 +1,22 @@
+[package]
+name = "klomang-node"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+klomang-core = { git = "https://github.com/biotalaut-it/klomang-core", branch = "main" }
+
+# Node runtime dependencies
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+env_logger = "0.10"
+clap = { version = "4", features = ["derive"] }
+rocksdb = "0.21.0"
+bincode = { version = "2.0.1", features = ["serde"] }
+num_cpus = "1.17.0"
+
+# Networking dependencies
+libp2p = { version = "0.51.4", features = ["quic", "tcp", "noise", "yamux", "ed25519", "identify", "ping", "tokio"] }
+libp2p-quic = "0.7.0-alpha.3"

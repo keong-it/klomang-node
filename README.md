@@ -1,2 +1,0 @@
-# klomang-node
-node

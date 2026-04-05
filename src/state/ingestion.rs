@@ -6,7 +6,7 @@
 //! - Rate limiting and backpressure
 //! - Orphan block processing retry loop
 
-use std::sync::Arc;
+
 use tokio::sync::mpsc;
 use crate::ingestion_guard::IngestionMessage;
 

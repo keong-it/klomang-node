@@ -8,7 +8,6 @@
 
 use std::error::Error;
 
-use bincode::config::standard;
 use log::{info, warn};
 use rocksdb::{Direction, IteratorMode, WriteBatch};
 
@@ -104,9 +103,7 @@ impl KlomangStorage {
                 Ok((key, value)) => {
                     if let Ok(height) = KeyBuilder::extract_height(&key) {
                         if height < prune_before_height {
-                            if let Ok((record, _)) =
-                                bincode::serde::decode_from_slice::<ChainIndexRecord, _>(&value, standard())
-                            {
+                            if let Ok(record) = bincode::deserialize::<ChainIndexRecord>(&value) {
                                 old_block_keys.push(KeyBuilder::block_key(&record.tip));
                             }
                         } else {

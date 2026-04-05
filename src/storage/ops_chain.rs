@@ -8,7 +8,6 @@
 
 use std::error::Error;
 
-use bincode::config::standard;
 use klomang_core::core::crypto::Hash;
 use log::{info, warn};
 use rocksdb::DBPinnableSlice;
@@ -32,7 +31,7 @@ impl KlomangStorage {
         
         for entry in iter {
             let (_, value) = entry?;
-            let (record, _) = bincode::serde::decode_from_slice::<ChainIndexRecord, _>(&value, standard())?;
+            let record = bincode::deserialize::<ChainIndexRecord>(&value)?;
             if &record.tip == block_hash {
                 return Ok(Some(record));
             }
@@ -54,7 +53,7 @@ impl KlomangStorage {
         let pinned: Option<DBPinnableSlice> = self.db.get_pinned_cf(cf_index, &key)?;
         if let Some(slice) = pinned {
             let data: &[u8] = slice.as_ref();
-            let (record, _) = bincode::serde::decode_from_slice::<ChainIndexRecord, _>(data, standard())?;
+            let record = bincode::deserialize::<ChainIndexRecord>(data)?;
             Ok(Some(record))
         } else {
             Ok(None)
@@ -78,7 +77,7 @@ impl KlomangStorage {
             total_work,
         };
 
-        let payload = bincode::serde::encode_to_vec(&chain_index, standard())?;
+        let payload = bincode::serialize(&chain_index)?;
         self.db.put_cf(cf_index, &key, &payload)?;
 
         info!(
@@ -157,7 +156,7 @@ impl KlomangStorage {
                     break;
                 }
 
-                let (record, _) = bincode::serde::decode_from_slice::<ChainIndexRecord, _>(&value, standard())?;
+                let record = bincode::deserialize::<ChainIndexRecord>(&value)?;
                 results.push(record);
             }
         }

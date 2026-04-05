@@ -8,7 +8,6 @@
 
 use std::error::Error;
 
-use bincode::config::standard;
 use klomang_core::core::state::transaction::Transaction;
 use log::warn;
 use rocksdb::DBPinnableSlice;
@@ -29,7 +28,7 @@ impl KlomangStorage {
         let pinned: Option<DBPinnableSlice> = self.db.get_pinned_cf(cf_txs, &key)?;
         if let Some(slice) = pinned {
             let data: &[u8] = slice.as_ref();
-            let (txs, _) = bincode::serde::decode_from_slice::<Vec<Transaction>, _>(data, standard())?;
+            let txs = bincode::deserialize::<Vec<Transaction>>(data)?;
             Ok(Some(txs))
         } else {
             Ok(None)

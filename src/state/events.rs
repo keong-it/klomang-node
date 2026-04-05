@@ -53,7 +53,7 @@ impl EventOps {
         _is_orphan: bool,
     ) -> StateResult<()> {
         let event = KlomangEvent::BlockAccepted {
-            hash: block.id.clone(),
+            hash: block.header.id.clone(),
             height: 0, // Height will be set by state manager
             timestamp_ms: EventOps::current_timestamp_ms(),
         };
@@ -125,7 +125,7 @@ impl EventOps {
         _storage: &StorageHandle,
     ) -> StateResult<()> {
         // Serialize event (conceptual - not actually persisting in this version)
-        let _event_bytes = bincode::serde::encode_to_vec(event, bincode::config::standard())
+        let _event_bytes = bincode::serialize(event)
             .map_err(|e| StateError::StorageError(format!("Failed to serialize event: {}", e)))?;
 
         // Store in a dedicated event log with timestamp prefix

@@ -181,10 +181,10 @@ impl OrphanPool {
 
     /// Add an orphan block to the pool
     pub fn add_orphan(&mut self, block: BlockNode) {
-        for parent in &block.parents {
+        for parent in &block.header.parents {
             self.pool.entry(parent.clone()).or_insert_with(Vec::new).push(block.clone());
         }
-        log::info!("[ORPHAN] Block {} stashed, waiting for parent", block.id.to_hex());
+        log::info!("[ORPHAN] Block {} stashed, waiting for parent", block.header.id.to_hex());
     }
 
     /// Get and remove all orphans that can now be processed
@@ -200,7 +200,7 @@ impl OrphanPool {
     /// Check if a block is an orphan (missing parents)
     pub fn is_orphan(&self, block: &BlockNode, storage: &StorageHandle) -> StateResult<bool> {
         // Check if all parents exist in storage
-        for parent in &block.parents {
+        for parent in &block.header.parents {
             let exists = storage.read().unwrap().get_block(parent)
                 .map_err(|e| StateError::StorageError(e.to_string()))?
                 .is_some();

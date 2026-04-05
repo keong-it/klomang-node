@@ -9,7 +9,6 @@
 use std::error::Error;
 use std::collections::HashSet;
 
-use bincode::config::standard;
 use klomang_core::{core::crypto::Hash, core::dag::BlockNode, core::state::transaction::Transaction};
 use log::{info, warn};
 use rocksdb::{Direction, IteratorMode, DBPinnableSlice, WriteBatch};
@@ -31,17 +30,17 @@ impl KlomangStorage {
         let cf_txs = self.cf(CF_TRANSACTIONS)?;
         let cf_index = self.cf(CF_CHAIN_INDEX)?;
 
-        let block_key = KeyBuilder::block_key(&block.id);
+        let block_key = KeyBuilder::block_key(&block.header.id);
         let height_key = KeyBuilder::height_index_key(chain_index.height);
 
-        let block_payload = bincode::serde::encode_to_vec(block, standard())?;
-        let transactions_payload = bincode::serde::encode_to_vec(transactions, standard())?;
-        let index_payload = bincode::serde::encode_to_vec(chain_index, standard())?;
+        let block_payload = bincode::serialize(block)?;
+        let transactions_payload = bincode::serialize(transactions)?;
+        let index_payload = bincode::serialize(chain_index)?;
 
         // Consistency validation with snapshot read (isolation)
         let snapshot = self.get_snapshot_read();
         if snapshot.get_cf(cf_blocks, &block_key)?.is_some() {
-            warn!("Block {} already exists, skipping duplicate write", block.id.to_hex());
+            warn!("Block {} already exists, skipping duplicate write", block.header.id.to_hex());
             // Still check but skip duplicate to prevent accidental overwrite
             return Ok(());
         }
@@ -99,18 +98,18 @@ impl KlomangStorage {
 
         // Add blocks ke batch setelah isolation check
         for (block, transactions, chain_index) in blocks {
-            let block_key = KeyBuilder::block_key(&block.id);
-            let tx_key = KeyBuilder::block_key(&block.id);
+            let block_key = KeyBuilder::block_key(&block.header.id);
+            let tx_key = KeyBuilder::block_key(&block.header.id);
             let height_key = KeyBuilder::height_index_key(chain_index.height);
 
             if snapshot.get_cf(cf_blocks, &block_key)?.is_some() {
-                warn!("Block {} already exists, skipping duplicate write", block.id.to_hex());
+                warn!("Block {} already exists, skipping duplicate write", block.header.id.to_hex());
                 continue;
             }
 
-            let block_payload = bincode::serde::encode_to_vec(&block, standard())?;
-            let transactions_payload = bincode::serde::encode_to_vec(&transactions, standard())?;
-            let index_payload = bincode::serde::encode_to_vec(&chain_index, standard())?;
+            let block_payload = bincode::serialize(&block)?;
+            let transactions_payload = bincode::serialize(&transactions)?;
+            let index_payload = bincode::serialize(&chain_index)?;
 
             batch.put_cf(cf_blocks, &block_key, &block_payload);
             batch.put_cf(cf_txs, &tx_key, &transactions_payload);
@@ -146,7 +145,7 @@ impl KlomangStorage {
         let pinned: Option<DBPinnableSlice> = self.db.get_pinned_cf(cf_blocks, &key)?;
         if let Some(slice) = pinned {
             let data: &[u8] = slice.as_ref();
-            let (block, _) = bincode::serde::decode_from_slice::<BlockNode, _>(data, standard())?;
+            let block = bincode::deserialize::<BlockNode>(data)?;
             Ok(Some(block))
         } else {
             Ok(None)
@@ -175,13 +174,13 @@ impl KlomangStorage {
                     break;
                 }
 
-                let (index, _) = bincode::serde::decode_from_slice::<ChainIndexRecord, _>(&value, standard())?;
+                let index = bincode::deserialize::<ChainIndexRecord>(&value)?;
                 let block_key = KeyBuilder::block_key(&index.tip);
 
                 let pinned: Option<DBPinnableSlice> = self.db.get_pinned_cf(cf_blocks, &block_key)?;
                 if let Some(slice) = pinned {
                     let data: &[u8] = slice.as_ref();
-                    let (block, _) = bincode::serde::decode_from_slice::<BlockNode, _>(data, standard())?;
+                    let block = bincode::deserialize::<BlockNode>(data)?;
                     output.push(block);
                 }
             }

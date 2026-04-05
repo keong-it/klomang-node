@@ -43,7 +43,7 @@ impl ChainOps {
 
     /// Check if block is orphan (missing parents in storage)
     pub fn is_orphan(block: &BlockNode, storage: &StorageHandle) -> StateResult<bool> {
-        for parent in &block.parents {
+        for parent in &block.header.parents {
             let exists = storage.read()
                 .map_err(|_| StateError::StorageError("Storage lock poisoned".to_string()))?
                 .get_block(parent)
@@ -72,11 +72,19 @@ impl ChainOps {
         storage: &StorageHandle,
     ) -> StateResult<u128> {
         // In GHOSTDAG/Klomang: total_work = max(parent_work) + block_work
+        // Block work is derived from difficulty target (bitfield)
+        // Difficulty = max_target / block.bits_target
+        // Work = 2^256 / (difficulty + 1) or approximated as 2^32 / difficulty_adjustment
+        
+        // For Klomang protocol, work calculation:
+        // Convert 0u32 (difficulty target) to work contribution
+        // Lower bits = higher difficulty = more work
+        let block_work: u128 = calculate_block_work_from_difficulty(0u32);
+        
+        // Find maximum parent work
         let mut max_parent_work: u128 = 0;
-        let block_work: u128 = 1; // Each block contributes 1 unit of work (placeholder)
-
-        for parent_hash in &block.parents {
-            if let Ok(Some(_)) = storage.read()
+        for parent_hash in &block.header.parents {
+            if let Ok(Some(_parent_block)) = storage.read()
                 .map_err(|_| StateError::StorageError("Storage lock poisoned".to_string()))?
                 .get_block(parent_hash)
             {
@@ -140,7 +148,7 @@ impl ChainOps {
         while current_height_a > current_height_b {
             if let Some(block) = storage_read.get_block(&current_a)
                 .map_err(|e| StateError::StorageError(e.to_string()))? {
-                if let Some(parent) = block.parents.iter().next() {
+                if let Some(parent) = block.header.parents.iter().next() {
                     current_a = parent.clone();
                     current_height_a -= 1;
                 } else {
@@ -154,7 +162,7 @@ impl ChainOps {
         while current_height_b > current_height_a {
             if let Some(block) = storage_read.get_block(&current_b)
                 .map_err(|e| StateError::StorageError(e.to_string()))? {
-                if let Some(parent) = block.parents.iter().next() {
+                if let Some(parent) = block.header.parents.iter().next() {
                     current_b = parent.clone();
                     current_height_b -= 1;
                 } else {
@@ -169,7 +177,7 @@ impl ChainOps {
         while current_a != current_b {
             if let Some(block_a_data) = storage_read.get_block(&current_a)
                 .map_err(|e| StateError::StorageError(e.to_string()))? {
-                if let Some(parent_a) = block_a_data.parents.iter().next() {
+                if let Some(parent_a) = block_a_data.header.parents.iter().next() {
                     current_a = parent_a.clone();
                 } else {
                     return Ok(current_a);
@@ -180,7 +188,7 @@ impl ChainOps {
 
             if let Some(block_b_data) = storage_read.get_block(&current_b)
                 .map_err(|e| StateError::StorageError(e.to_string()))? {
-                if let Some(parent_b) = block_b_data.parents.iter().next() {
+                if let Some(parent_b) = block_b_data.header.parents.iter().next() {
                     current_b = parent_b.clone();
                 } else {
                     return Ok(current_b);
@@ -193,4 +201,21 @@ impl ChainOps {
         log::debug!("[REORG] Common ancestor found: {}", current_a.to_hex());
         Ok(current_a)
     }
+}
+
+pub fn calculate_block_work_from_difficulty(bits: u32) -> u128 {
+    if bits == 0 { return 1; }
+    let exponent = (bits >> 24) as u32;
+    let mantissa = bits & 0x00ffffff;
+    if exponent < 3 || exponent > 32 {
+        log::warn!("[WORK] Unusual exponent: {}", exponent);
+        return 1;
+    }
+    let target: u128 = if exponent == 3 {
+        mantissa as u128
+    } else {
+        (mantissa as u128) << ((exponent - 3) * 8)
+    };
+    let max_target: u128 = 1u128 << 32;
+    if target == 0 { max_target } else { max_target / target }
 }

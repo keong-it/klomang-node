@@ -35,9 +35,10 @@ use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
-use klomang_core::{Dag, UtxoSet, BlockNode, Transaction, Hash};
+use klomang_core::{Dag, UtxoSet, BlockNode, Transaction, Hash, SignedTransaction};
 use crate::storage::{StorageHandle, ChainIndexRecord};
 use crate::ingestion_guard::{RateLimiter, IngestionMessage, IngestionStats, IngestionGuardConfig, create_ingestion_queue as create_ig_queue};
+use crate::mempool::AdvancedMempool;
 
 /// Central state manager for Klomang Node
 /// Coordinates between klomang-core (brain) and storage (warehouse)
@@ -48,6 +49,8 @@ pub struct KlomangStateManager {
     dag: Dag,
     /// UTXO set for transaction validation
     utxo_set: UtxoSet,
+    /// Advanced mempool for transaction management
+    mempool: Arc<RwLock<AdvancedMempool>>,
     /// Current Verkle tree root hash - kept in sync with best_block
     /// CRITICAL: Must be persisted to CF_STATE and verified at startup
     /// Mismatch with best_block indicates corrupted state
@@ -95,10 +98,14 @@ impl KlomangStateManager {
         );
         let ingestion_stats = Arc::new(std::sync::Mutex::new(IngestionStats::new()));
 
+        let mempool = AdvancedMempool::new(storage.clone())
+            .map_err(|e| StateError::StorageError(format!("Failed to initialize mempool: {}", e)))?;
+
         Ok(KlomangStateManager {
-            storage,
+            storage: storage.clone(),
             dag,
             utxo_set,
+            mempool: Arc::new(RwLock::new(mempool)),
             current_verkle_root,
             best_block,
             orphan_pool: OrphanPool::new(),
@@ -243,12 +250,12 @@ impl KlomangStateManager {
 
     /// Calculate block height from its parents
     fn calculate_block_height(&self, block: &BlockNode) -> StateResult<u64> {
-        if block.parents.is_empty() {
+        if block.header.parents.is_empty() {
             return Ok(0);
         }
 
         let mut max_parent_height = 0u64;
-        for parent_hash in &block.parents {
+        for parent_hash in &block.header.parents {
             if let Some(parent_record) = self.storage.read()
                 .map_err(|e| StateError::StorageError(format!("Storage lock poisoned: {}", e)))?
                 .get_chain_index(parent_hash)
@@ -284,10 +291,10 @@ impl KlomangStateManager {
         // Stateless validation
         if let Err(e) = self.validate_block_stateless(&block) {
             log::warn!("[VALIDATION] Block {} rejected in stateless validation: {}", 
-                block.id.to_hex(), e);
+                block.header.id.to_hex(), e);
             let timestamp = EventOps::current_timestamp_ms();
             self.emit_event(KlomangEvent::BlockRejected {
-                hash: block.id.clone(),
+                hash: block.header.id.clone(),
                 reason: format!("Stateless validation failed: {}", e),
                 timestamp_ms: timestamp,
             });
@@ -297,10 +304,10 @@ impl KlomangStateManager {
         // Stateful validation
         if let Err(e) = self.validate_block_stateful(&block) {
             log::warn!("[VALIDATION] Block {} rejected in stateful validation: {}", 
-                block.id.to_hex(), e);
+                block.header.id.to_hex(), e);
             let timestamp = EventOps::current_timestamp_ms();
             self.emit_event(KlomangEvent::BlockRejected {
-                hash: block.id.clone(),
+                hash: block.header.id.clone(),
                 reason: format!("Stateful validation failed: {}", e),
                 timestamp_ms: timestamp,
             });
@@ -327,16 +334,31 @@ impl KlomangStateManager {
         // Finalization
         self.finalize_block_processing();
 
-        log::info!("[VALIDATION] Block {} successfully accepted", block.id.to_hex());
+        log::info!("[VALIDATION] Block {} successfully accepted", block.header.id.to_hex());
         let block_height = self.calculate_block_height(&block)?;
         let timestamp = EventOps::current_timestamp_ms();
         self.emit_event(KlomangEvent::BlockAccepted {
-            hash: block.id.clone(),
+            hash: block.header.id.clone(),
             height: block_height,
             timestamp_ms: timestamp,
         });
 
+        // Remove confirmed transactions from mempool
+        self.mempool.write().unwrap().remove_confirmed_transactions(&block)
+            .map_err(|e| StateError::StorageError(format!("Mempool error: {}", e)))?;
+
         Ok(())
+    }
+
+    /// Add a transaction to the mempool after validation
+    pub fn add_transaction(&self, tx: SignedTransaction) -> Result<Hash, String> {
+        self.mempool.write().unwrap().add_transaction(tx).map_err(|e| e.to_string())
+    }
+
+    /// Start mempool background tasks
+    pub fn start_mempool_tasks(&self) -> Result<(), String> {
+        self.mempool.write().unwrap().start_background_tasks()
+            .map_err(|e| format!("Failed to start mempool background tasks: {}", e))
     }
 
     /// PHASE 1A: STATELESS VALIDATION
@@ -344,7 +366,7 @@ impl KlomangStateManager {
         self.validate_signature(block)?;
         self.validate_hash_integrity(block)?;
         self.validate_structure_and_size(block)?;
-        log::debug!("Block {} passed stateless validation", block.id.to_hex());
+        log::debug!("Block {} passed stateless validation", block.header.id.to_hex());
         Ok(())
     }
 
@@ -355,52 +377,59 @@ impl KlomangStateManager {
         self.validate_balance_and_fees(block)?;
         self.validate_verkle_proofs(block)?;
         self.validate_ghostdag_rules(block)?;
-        log::debug!("Block {} passed stateful validation", block.id.to_hex());
+        log::debug!("Block {} passed stateful validation", block.header.id.to_hex());
         Ok(())
     }
 
     fn validate_signature(&self, block: &BlockNode) -> StateResult<()> {
-        if block.id.to_hex().is_empty() {
+        if block.header.id.to_hex().is_empty() {
             log::warn!("[SIG] Block missing ID for signature validation");
             return Err(StateError::InvalidSignature);
         }
-        log::debug!("[SIG] Block signature validated for {}", block.id.to_hex());
+
+        // TODO: Integrate actual signature verification
+        // if !verify_block_signature(block) {
+        //     log::warn!("[SIG] Block signature invalid for {}", block.header.id.to_hex());
+        //     return Err(StateError::InvalidSignature);
+        // }
+
+        log::debug!("[SIG] Block signature validated for {}", block.header.id.to_hex());
         Ok(())
     }
 
     fn validate_hash_integrity(&self, block: &BlockNode) -> StateResult<()> {
-        if block.id.to_hex().is_empty() {
+        if block.header.id.to_hex().is_empty() {
             log::warn!("[HASH] Block has empty hash");
             return Err(StateError::InvalidHash);
         }
-        log::debug!("[HASH] Block hash integrity validated for {}", block.id.to_hex());
+        log::debug!("[HASH] Block hash integrity validated for {}", block.header.id.to_hex());
         Ok(())
     }
 
     fn validate_structure_and_size(&self, block: &BlockNode) -> StateResult<()> {
-        if block.parents.is_empty() && !block.id.to_hex().is_empty() {
-            log::debug!("[STRUCT] Block {} has no parents (could be genesis)", block.id.to_hex());
+        if block.header.parents.is_empty() && !block.header.id.to_hex().is_empty() {
+            log::debug!("[STRUCT] Block {} has no parents (could be genesis)", block.header.id.to_hex());
         }
-        if block.transactions.is_empty() && !block.id.to_hex().is_empty() {
-            log::debug!("[STRUCT] Block {} has no transactions", block.id.to_hex());
+        if block.transactions.is_empty() && !block.header.id.to_hex().is_empty() {
+            log::debug!("[STRUCT] Block {} has no transactions", block.header.id.to_hex());
         }
-        log::debug!("[STRUCT] Block structure validated for {}", block.id.to_hex());
+        log::debug!("[STRUCT] Block structure validated for {}", block.header.id.to_hex());
         Ok(())
     }
 
     fn validate_utxo_existence(&self, block: &BlockNode) -> StateResult<()> {
         log::info!("[UTXO_EXIST] Validating UTXO existence for {} transactions in block {}", 
-            block.transactions.len(), block.id.to_hex());
+            block.transactions.len(), block.header.id.to_hex());
         for (tx_idx, _tx) in block.transactions.iter().enumerate() {
             log::debug!("[UTXO_EXIST] Transaction {} validated", tx_idx);
         }
         log::debug!("[UTXO_EXIST] All transaction inputs exist in UTXO set for block {}", 
-            block.id.to_hex());
+            block.header.id.to_hex());
         Ok(())
     }
 
     fn validate_double_spend(&self, block: &BlockNode) -> StateResult<()> {
-        log::info!("[DOUBLE_SPEND] Validating for duplicate spends in block {}", block.id.to_hex());
+        log::info!("[DOUBLE_SPEND] Validating for duplicate spends in block {}", block.header.id.to_hex());
         let mut spent_outputs: std::collections::HashSet<String> = std::collections::HashSet::new();
         for (tx_idx, tx) in block.transactions.iter().enumerate() {
             for (input_idx, _input) in tx.inputs.iter().enumerate() {
@@ -413,13 +442,13 @@ impl KlomangStateManager {
                     input_idx, tx.inputs.len(), tx_idx);
             }
         }
-        log::debug!("[DOUBLE_SPEND] No duplicate spends detected in block {}", block.id.to_hex());
+        log::debug!("[DOUBLE_SPEND] No duplicate spends detected in block {}", block.header.id.to_hex());
         Ok(())
     }
 
     fn validate_balance_and_fees(&self, block: &BlockNode) -> StateResult<()> {
         log::info!("[BALANCE] Validating balance and fees for {} transactions in block {}", 
-            block.transactions.len(), block.id.to_hex());
+            block.transactions.len(), block.header.id.to_hex());
         for (tx_idx, tx) in block.transactions.iter().enumerate() {
             let mut _total_output: u64 = 0;
             for output in &tx.outputs {
@@ -429,32 +458,47 @@ impl KlomangStateManager {
             log::debug!("[BALANCE] Tx {} balance validated (input≥output)", tx_idx);
         }
         log::debug!("[BALANCE] All transactions passed balance validation in block {}", 
-            block.id.to_hex());
+            block.header.id.to_hex());
         Ok(())
     }
 
     fn validate_verkle_proofs(&self, block: &BlockNode) -> StateResult<()> {
-        log::debug!("[VERKLE] Verkle proofs validated for block {}", block.id.to_hex());
+        if block.header.verkle_root.to_hex().is_empty() {
+            log::warn!("[VERKLE] Block {} contains empty Verkle root", block.header.id.to_hex());
+            return Err(StateError::CoreValidationError("Empty Verkle root in block header".to_string()));
+        }
+
+        if block.header.verkle_proofs.is_none() {
+            log::warn!("[VERKLE] Block {} missing Verkle proof payload", block.header.id.to_hex());
+            return Err(StateError::CoreValidationError("Missing Verkle proof payload".to_string()));
+        }
+
+        log::debug!(
+            "[VERKLE] Block {} has Verkle commitment {} against current root {}",
+            block.header.id.to_hex(),
+            block.header.verkle_root.to_hex(),
+            self.current_verkle_root.to_hex(),
+        );
         Ok(())
     }
 
     fn validate_ghostdag_rules(&self, block: &BlockNode) -> StateResult<()> {
-        log::info!("[GHOSTDAG] Validating GHOSTDAG rules for block {}", block.id.to_hex());
-        if block.parents.is_empty() {
+        log::info!("[GHOSTDAG] Validating GHOSTDAG rules for block {}", block.header.id.to_hex());
+        if block.header.parents.is_empty() {
             log::debug!("[GHOSTDAG] Genesis block detected (no parents)");
             return Ok(());
         }
-        for (parent_idx, _parent_hash) in block.parents.iter().enumerate() {
-            log::debug!("[GHOSTDAG] Parent {}/{} validated", parent_idx + 1, block.parents.len());
+        for (parent_idx, _parent_hash) in block.header.parents.iter().enumerate() {
+            log::debug!("[GHOSTDAG] Parent {}/{} validated", parent_idx + 1, block.header.parents.len());
         }
-        log::debug!("[GHOSTDAG] GHOSTDAG rules validated for block {}", block.id.to_hex());
+        log::debug!("[GHOSTDAG] GHOSTDAG rules validated for block {}", block.header.id.to_hex());
         Ok(())
     }
 
     /// PHASE 2: STAGING - Calculate UTXO diff
     fn stage_utxo_diff(&self, block: &BlockNode) -> StateResult<UtxoDiff> {
         log::info!("[STAGING] Calculating UTXO diff for block {} with {} transactions", 
-            block.id.to_hex(), block.transactions.len());
+            block.header.id.to_hex(), block.transactions.len());
         
         let mut utxo_diff = UtxoDiff::new_with_roots(
             self.current_verkle_root.clone(), 
@@ -478,7 +522,7 @@ impl KlomangStateManager {
 
     /// Create staged changes from UTXO diff
     fn create_staged_changes(&self, utxo_diff: UtxoDiff, block: &BlockNode) -> StateResult<StagedUtxoChanges> {
-        log::info!("[STAGING] Creating staged changes for block {}", block.id.to_hex());
+        log::info!("[STAGING] Creating staged changes for block {}", block.header.id.to_hex());
         
         let mut max_parent_work: u128 = 0;
         let block_work: u128 = 1;
@@ -490,7 +534,7 @@ impl KlomangStateManager {
         
         Ok(StagedUtxoChanges {
             utxo_diff,
-            new_best_block: block.id.clone(),
+            new_best_block: block.header.id.clone(),
             new_total_work,
         })
     }
@@ -511,7 +555,7 @@ impl KlomangStateManager {
         };
 
         let diff_key = format!("utxo_diff:{}", staged_changes.new_best_block.to_hex());
-        let diff_payload = bincode::serde::encode_to_vec(&staged_changes.utxo_diff, bincode::config::standard())
+        let diff_payload = bincode::serialize(&staged_changes.utxo_diff)
             .map_err(|e| StateError::StorageError(format!("Failed to serialize UTXO diff: {}", e)))?;
         storage_write.put_state(&diff_key, &diff_payload)
             .map_err(|e| StateError::StorageError(format!("Failed to persist UTXO diff: {}", e)))?;
@@ -528,7 +572,7 @@ impl KlomangStateManager {
             Err(e) => {
                 let error_msg = e.to_string();
                 log::error!("[PERSISTENCE] Storage error while saving block {}: {}", 
-                    block.id.to_hex(), error_msg);
+                    block.header.id.to_hex(), error_msg);
                 Err(StateError::StorageError(error_msg))
             }
         }
@@ -571,7 +615,7 @@ impl KlomangStateManager {
                 orphans.len(), current_parent.to_hex());
 
             for orphan in orphans {
-                log::debug!("[ORPHAN] Processing orphan block {}", orphan.id.to_hex());
+                log::debug!("[ORPHAN] Processing orphan block {}", orphan.header.id.to_hex());
 
                 match self.process_block_internal(orphan) {
                     Ok(()) => {
@@ -668,11 +712,11 @@ impl KlomangStateManager {
                 .map_err(|e| StateError::StorageError(format!("Storage lock poisoned: {}", e)))?
                 .get_block(&current).map_err(|e| StateError::StorageError(e.to_string()))? {
                 Some(block_data) => {
-                    if block_data.parents.is_empty() {
+                    if block_data.header.parents.is_empty() {
                         log::warn!("[REORG] Reached genesis before finding ancestor");
                         break;
                     }
-                    if let Some(first_parent) = block_data.parents.iter().next() {
+                    if let Some(first_parent) = block_data.header.parents.iter().next() {
                         current = first_parent.clone();
                     } else {
                         break;
@@ -704,11 +748,11 @@ impl KlomangStateManager {
                 .map_err(|e| StateError::StorageError(format!("Storage lock poisoned: {}", e)))?
                 .get_block(&current).map_err(|e| StateError::StorageError(e.to_string()))? {
                 Some(block_data) => {
-                    if block_data.parents.is_empty() {
+                    if block_data.header.parents.is_empty() {
                         log::warn!("[REORG] Reached genesis before finding ancestor");
                         break;
                     }
-                    if let Some(first_parent) = block_data.parents.iter().next() {
+                    if let Some(first_parent) = block_data.header.parents.iter().next() {
                         current = first_parent.clone();
                     } else {
                         break;

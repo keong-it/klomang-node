@@ -175,7 +175,7 @@ impl OrphanPool {
 
     /// Add an orphan block to the pool
     fn add_orphan(&mut self, block: BlockNode) {
-        for parent in &block.parents {
+        for parent in &block.header.parents {
             self.pool.entry(parent.clone()).or_insert_with(Vec::new).push(block.clone());
         }
         log::info!("[ORPHAN] Block {} stashed, waiting for parent", block.id.to_hex());
@@ -194,7 +194,7 @@ impl OrphanPool {
     /// Check if a block is an orphan (missing parents)
     fn is_orphan(&self, block: &BlockNode, storage: &StorageHandle) -> StateResult<bool> {
         // Check if all parents exist in storage
-        for parent in &block.parents {
+        for parent in &block.header.parents {
             let exists = storage.read().unwrap().get_block(parent)
                 .map_err(|e| StateError::StorageError(e.to_string()))?
                 .is_some();
@@ -486,14 +486,14 @@ impl KlomangStateManager {
 
     /// Calculate block height from its parents
     fn calculate_block_height(&self, block: &BlockNode) -> StateResult<u64> {
-        if block.parents.is_empty() {
+        if block.header.parents.is_empty() {
             // Genesis block
             return Ok(0);
         }
 
         // Find the maximum height among parents
         let mut max_parent_height = 0u64;
-        for parent_hash in &block.parents {
+        for parent_hash in &block.header.parents {
             if let Some(parent_record) = self.storage.read().map_err(|e| StateError::StorageError(format!("Storage lock poisoned: {}", e)))?
                 .get_chain_index(parent_hash)
                 .map_err(|e| StateError::StorageError(e.to_string()))? {
@@ -698,7 +698,7 @@ impl KlomangStateManager {
         // Checks: parent count, transaction count, size limits
         
         // Check: Block should have at least one parent (except genesis)
-        if block.parents.is_empty() && !block.id.to_hex().is_empty() {
+        if block.header.parents.is_empty() && !block.id.to_hex().is_empty() {
             // Could be genesis block, which is OK
             log::debug!("[STRUCT] Block {} has no parents (could be genesis)", block.id.to_hex());
         }
@@ -710,8 +710,8 @@ impl KlomangStateManager {
         
         // TODO: Integrate klomang-core structure validation
         // Pattern:
-        // if block.parents.len() > MAX_PARENTS {
-        //     return Err(StateError::SanityCheckFailed(format!("Too many parents: {}", block.parents.len())));
+        // if block.header.parents.len() > MAX_PARENTS {
+        //     return Err(StateError::SanityCheckFailed(format!("Too many parents: {}", block.header.parents.len())));
         // }
         // if block.transactions.len() > MAX_TRANSACTIONS {
         //     return Err(StateError::SanityCheckFailed(format!("Too many transactions: {}", block.transactions.len())));
@@ -897,23 +897,23 @@ impl KlomangStateManager {
         log::info!("[GHOSTDAG] Validating GHOSTDAG rules for block {}", block.id.to_hex());
         
         // Check: Block must have parents (except genesis)
-        if block.parents.is_empty() {
+        if block.header.parents.is_empty() {
             log::debug!("[GHOSTDAG] Genesis block detected (no parents)");
             return Ok(());
         }
         
         // Check: All parent blocks should exist
-        for (parent_idx, parent_hash) in block.parents.iter().enumerate() {
+        for (parent_idx, parent_hash) in block.header.parents.iter().enumerate() {
             // TODO: Implement parent existence check
             // Pattern:
             // match self.storage.read()?.get_block(parent_hash) {
             //     Ok(Some(_)) => {
             //         log::debug!("[GHOSTDAG] Parent {}/{} exists: {}", 
-            //             parent_idx, block.parents.len(), parent_hash.to_hex());
+            //             parent_idx, block.header.parents.len(), parent_hash.to_hex());
             //     }
             //     Ok(None) => {
             //         log::warn!("[GHOSTDAG] Parent {}/{} not found: {}", 
-            //             parent_idx, block.parents.len(), parent_hash.to_hex());
+            //             parent_idx, block.header.parents.len(), parent_hash.to_hex());
             //         return Err(StateError::OrphanBlock);
             //     }
             //     Err(e) => {
@@ -921,7 +921,7 @@ impl KlomangStateManager {
             //     }
             // }
             
-            log::debug!("[GHOSTDAG] Parent {}/{} validated", parent_idx + 1, block.parents.len());
+            log::debug!("[GHOSTDAG] Parent {}/{} validated", parent_idx + 1, block.header.parents.len());
         }
         
         // TODO: Integrate klomang_core GHOSTDAG validation
@@ -1011,7 +1011,7 @@ impl KlomangStateManager {
         
         // TODO: Query parent blocks' total work
         // Pattern:
-        // for parent_hash in &block.parents {
+        // for parent_hash in &block.header.parents {
         //     if let Ok(Some(_block)) = self.storage.read()?.get_block(parent_hash) {
         //         let parent_chain_record = self.storage.read()?.get_chain_index(parent_hash)?;
         //         if let Some(record) = parent_chain_record {
@@ -1271,7 +1271,7 @@ impl KlomangStateManager {
         while current_height_a > current_height_b {
             if let Some(block) = storage_read.get_block(&current_a)
                 .map_err(|e| StateError::StorageError(e.to_string()))? {
-                if let Some(parent) = block.parents.iter().next() {
+                if let Some(parent) = block.header.parents.iter().next() {
                     current_a = parent.clone();
                     current_height_a -= 1;
                 } else {
@@ -1286,7 +1286,7 @@ impl KlomangStateManager {
         while current_height_b > current_height_a {
             if let Some(block) = storage_read.get_block(&current_b)
                 .map_err(|e| StateError::StorageError(e.to_string()))? {
-                if let Some(parent) = block.parents.iter().next() {
+                if let Some(parent) = block.header.parents.iter().next() {
                     current_b = parent.clone();
                     current_height_b -= 1;
                 } else {

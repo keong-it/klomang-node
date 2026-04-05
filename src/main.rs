@@ -2,15 +2,18 @@ mod storage;
 mod state;
 mod ingestion_guard;
 mod network;
+mod mempool;
 
 use clap::Parser;
 use env_logger;
-use klomang_core::{core::crypto::Hash, core::dag::{BlockNode, Dag}, UtxoSet, Transaction};
+use klomang_core::{Dag, UtxoSet};
 use log::info;
 use storage::{ChainIndexRecord, KlomangStorage, StorageHandle};
 use std::error::Error;
 use std::sync::{Arc, RwLock};
 use std::collections::HashSet;
+use crate::state::ingestion::{IngestionSender, IngestionReceiver};
+use crate::ingestion_guard::{IngestionMessage, RateLimiter, create_ingestion_queue};
 
 #[derive(Parser)]
 #[command(name = "klomang-node")]
@@ -55,9 +58,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
+    // Start mempool background tasks
+    {
+        let sm = state_manager.write().unwrap();
+        sm.start_mempool_tasks()?;
+    }
+    println!("✅ Mempool background tasks started");
+
+    // Initialize Ingestion Guard
+    let (ingestion_sender, mut ingestion_receiver, rate_limiter) = create_ingestion_queue(10_000, 1000);
+    println!("✅ Ingestion queue initialized with capacity 10,000 and rate limit 1000 blocks/sec");
+
     // Initialize Network Manager - P2P communication layer
     let network_config = network::NetworkConfig::default();
-    let mut network_manager = match network::NetworkManager::new(storage.clone(), network_config).await {
+    let mut network_manager = match network::NetworkManager::new(storage.clone(), network_config, ingestion_sender.clone(), state_manager.clone()).await {
         Ok(nm) => {
             println!("✅ Network Manager initialized successfully");
             println!("   Local PeerID: {}", nm.local_peer_id());
@@ -69,18 +83,52 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
+    // Spawn ingestion worker
+    let state_manager_clone = state_manager.clone();
+    tokio::spawn(async move {
+        while let Some(msg) = ingestion_receiver.recv().await {
+            match msg {
+                IngestionMessage::Block(block) => {
+                    log::info!("[INGESTION] Processing block {}", block.header.id);
+                    // Process block through state manager
+                    if let Err(e) = state_manager_clone.write().map_err(|e| format!("State manager lock poisoned: {}", e)).unwrap().process_block(block) {
+                        log::error!("[INGESTION] Failed to process block: {}", e);
+                    }
+                }
+                IngestionMessage::Shutdown => {
+                    log::info!("[INGESTION] Shutdown signal received");
+                    break;
+                }
+            }
+        }
+    });
+
+    // Spawn network event loop
+    tokio::spawn(async move {
+        if let Err(e) = network_manager.run().await {
+            log::error!("Network error: {}", e);
+        }
+    });
+
+    // TODO: Uncomment test code when BlockHeader is available
+    /*
     let genesis_id = Hash::new(b"genesis-block");
     let genesis_block = BlockNode {
-        id: genesis_id.clone(),
-        parents: HashSet::new(),
+        header: BlockHeader {
+            id: genesis_id.clone(),
+            parents: HashSet::new(),
+            timestamp: 0,
+            difficulty: 1,
+            nonce: 0,
+            verkle_root: Hash::new(b"genesis-verkle-root"),
+            verkle_proofs: None,
+            signature: None,
+        },
         children: HashSet::new(),
         selected_parent: None,
         blue_set: HashSet::new(),
         red_set: HashSet::new(),
         blue_score: 0,
-        timestamp: 0,
-        difficulty: 1,
-        nonce: 0,
         transactions: Vec::new(),
     };
 
@@ -102,16 +150,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
     for i in 1..=10 {
         let block_id = Hash::new(format!("block-{}", i).as_bytes());
         let block = BlockNode {
-            id: block_id.clone(),
-            parents: HashSet::from([genesis_id.clone()]),
+            header: BlockHeader {
+                id: block_id.clone(),
+                parents: HashSet::from([genesis_id.clone()]),
+                timestamp: i as u64 * 1000,
+                difficulty: 1,
+                nonce: i as u64,
+                verkle_root: Hash::new(format!("verkle-root-{}", i).as_bytes()),
+                verkle_proofs: None,
+                signature: None,
+            },
             children: HashSet::new(),
             selected_parent: Some(genesis_id.clone()),
             blue_set: HashSet::new(),
             red_set: HashSet::new(),
             blue_score: i as u64,
-            timestamp: i as u64 * 1000,
-            difficulty: 1,
-            nonce: i as u64,
             transactions: Vec::new(),
         };
 
@@ -144,16 +197,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Demonstrate State Manager block processing
     println!("\n🧠 Testing State Manager block processing...");
     let test_block = BlockNode {
-        id: Hash::new(b"test-block"),
-        parents: std::collections::HashSet::from([genesis_id.clone()]),
+        header: BlockHeader {
+            id: Hash::new(b"test-block"),
+            parents: std::collections::HashSet::from([genesis_id.clone()]),
+            timestamp: 1000,
+            difficulty: 1,
+            nonce: 42,
+            verkle_root: Hash::new(b"test-verkle-root"),
+            verkle_proofs: None,
+            signature: None,
+        },
         children: std::collections::HashSet::new(),
         selected_parent: Some(genesis_id.clone()),
         blue_set: std::collections::HashSet::new(),
         red_set: std::collections::HashSet::new(),
         blue_score: 1,
-        timestamp: 1000,
-        difficulty: 1,
-        nonce: 42,
         transactions: Vec::new(),
     };
 
@@ -161,23 +219,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Ok(()) => println!("✅ Block processed successfully by State Manager"),
         Err(e) => println!("❌ Block processing failed: {:?}", e),
     }
+    */
 
-    // Start Network Manager (runs for demo duration)
-    println!("\n🌐 Starting Network Manager...");
-    let network_start = std::time::Instant::now();
-    let network_result = tokio::time::timeout(
-        tokio::time::Duration::from_secs(5),
-        network_manager.run()
-    ).await;
-
-    match network_result {
-        Ok(Ok(())) => println!("✅ Network Manager completed successfully"),
-        Ok(Err(e)) => println!("❌ Network Manager error: {:?}", e),
-        Err(_) => println!("✅ Network Manager ran for 5 seconds (timeout)"),
-    }
-
-    let network_duration = network_start.elapsed();
-    println!("Network uptime: {:.2}s", network_duration.as_secs_f64());
+    // Keep the node running
+    println!("\n🚀 Klomang Node is running... Press Ctrl+C to stop");
+    tokio::signal::ctrl_c().await?;
+    println!("Shutting down...");
 
     // Graceful shutdown
     info!("Preparing graceful shutdown");

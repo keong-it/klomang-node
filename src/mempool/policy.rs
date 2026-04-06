@@ -2,9 +2,9 @@
 //!
 //! Handles fee estimation, RBF/CPFP rules, and transaction expiry management.
 
+use klomang_core::{Hash, MempoolError, SignedTransaction};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use klomang_core::{SignedTransaction, Hash, MempoolError};
 
 /// Configuration for transaction policies
 #[derive(Clone, Debug)]
@@ -23,7 +23,7 @@ impl Default for PolicyConfig {
     fn default() -> Self {
         PolicyConfig {
             default_ttl: Duration::from_secs(72 * 3600), // 72 hours
-            min_relay_fee: 1000, // satoshis per byte
+            min_relay_fee: 1000,                         // satoshis per byte
             rbf_fee_increment: 1.1,
             max_tx_weight: 400_000,
         }
@@ -59,24 +59,24 @@ impl FeeEstimator {
     pub fn update_estimates(&mut self, mempool_size: usize, density: f64) {
         self.density = density;
 
-        // Dynamic adjustment based on density
-        let base_fee = if density > 10.0 {
-            3000 // High congestion
-        } else if density > 5.0 {
+        // Dynamic base fee adjustment based on mempool congestion (>50% capacity triggers increase)
+        let base_fee = if density > 0.5 { // >50% capacity
+            3000 // High congestion - increase base fee
+        } else if density > 0.25 { // >25% capacity
             2000 // Medium congestion
         } else {
             1000 // Low congestion
         };
 
         // Update estimates
-        for (blocks, _) in self.estimates.iter_mut() {
+        for (blocks, value) in self.estimates.iter_mut() {
             let multiplier = match blocks {
                 1 => 2.0,
                 6 => 1.5,
                 12 => 1.2,
                 _ => 1.0,
             };
-            *self.estimates.get_mut(blocks).unwrap() = (base_fee as f64 * multiplier) as u64;
+            *value = (base_fee as f64 * multiplier) as u64;
         }
 
         // Record history
@@ -100,7 +100,7 @@ impl FeeEstimator {
 /// Transaction policy engine
 pub struct TransactionPolicy {
     config: PolicyConfig,
-    fee_estimator: FeeEstimator,
+    pub fee_estimator: std::sync::RwLock<FeeEstimator>,
     /// Transaction timestamps for expiry tracking
     tx_timestamps: HashMap<Hash, Instant>,
 }
@@ -109,7 +109,7 @@ impl TransactionPolicy {
     pub fn new(config: PolicyConfig) -> Self {
         TransactionPolicy {
             config,
-            fee_estimator: FeeEstimator::new(),
+            fee_estimator: std::sync::RwLock::new(FeeEstimator::new()),
             tx_timestamps: HashMap::new(),
         }
     }

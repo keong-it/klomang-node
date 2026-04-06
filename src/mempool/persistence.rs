@@ -3,10 +3,9 @@
 //! Saves and loads mempool snapshots to/from RocksDB for persistence
 //! across node restarts.
 
-
+use crate::storage::StorageHandle;
 use bincode;
 use klomang_core::{Mempool, SignedTransaction};
-use crate::storage::StorageHandle;
 
 /// Mempool snapshot manager
 pub struct MempoolSnapshot {
@@ -27,30 +26,39 @@ impl MempoolSnapshot {
         // NOTE: get_all_transactions removed from klomang-core API
         // Use get_top_transactions instead or return empty snapshot
         let transactions: Vec<SignedTransaction> = vec![]; // TODO: implement proper snapshot
-        let serialized = bincode::serialize(&transactions)
-            .map_err(|e| format!("Serialization error: {}", e))?;
+        let serialized =
+            bincode::serialize(&transactions).map_err(|e| format!("Serialization error: {}", e))?;
 
-        self.storage.write()
+        self.storage
+            .write()
             .map_err(|e| format!("Storage lock error: {}", e))?
             .put_state(&self.snapshot_key, &serialized)
             .map_err(|e| format!("Storage write error: {}", e))?;
 
-        log::info!("Saved mempool snapshot with {} transactions", transactions.len());
+        log::info!(
+            "Saved mempool snapshot with {} transactions",
+            transactions.len()
+        );
         Ok(())
     }
 
     /// Load mempool snapshot
     pub fn load(&self) -> Result<Vec<SignedTransaction>, String> {
-        let data = self.storage.read()
+        let data = self
+            .storage
+            .read()
             .map_err(|e| format!("Storage lock error: {}", e))?
             .get_state(&self.snapshot_key)
             .map_err(|e| format!("Storage read error: {}", e))?
             .ok_or("No mempool snapshot found")?;
 
-        let transactions: Vec<SignedTransaction> = bincode::deserialize(&data)
-            .map_err(|e| format!("Deserialization error: {}", e))?;
+        let transactions: Vec<SignedTransaction> =
+            bincode::deserialize(&data).map_err(|e| format!("Deserialization error: {}", e))?;
 
-        log::info!("Loaded mempool snapshot with {} transactions", transactions.len());
+        log::info!(
+            "Loaded mempool snapshot with {} transactions",
+            transactions.len()
+        );
         Ok(transactions)
     }
 
@@ -64,7 +72,9 @@ impl MempoolSnapshot {
 
     /// Check if snapshot exists
     pub fn exists(&self) -> Result<bool, String> {
-        let exists = self.storage.read()
+        let exists = self
+            .storage
+            .read()
             .map_err(|e| format!("Storage lock error: {}", e))?
             .get_state(&self.snapshot_key)
             .map_err(|e| format!("Storage read error: {}", e))?
@@ -75,13 +85,15 @@ impl MempoolSnapshot {
 
     /// Get snapshot metadata
     pub fn get_metadata(&self) -> Result<SnapshotMetadata, String> {
-        if let Some(data) = self.storage.read()
+        if let Some(data) = self
+            .storage
+            .read()
             .map_err(|e| format!("Storage lock error: {}", e))?
             .get_state(&self.snapshot_key)
-            .map_err(|e| format!("Storage read error: {}", e))? {
-
-            let transactions: Vec<SignedTransaction> = bincode::deserialize(&data)
-                .map_err(|e| format!("Deserialization error: {}", e))?;
+            .map_err(|e| format!("Storage read error: {}", e))?
+        {
+            let transactions: Vec<SignedTransaction> =
+                bincode::deserialize(&data).map_err(|e| format!("Deserialization error: {}", e))?;
 
             // NOTE: fee and weight fields no longer available in Transaction
             // Use default values for metadata

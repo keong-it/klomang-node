@@ -5,7 +5,6 @@
 /// - Zero-copy reads menggunakan snapshot isolation
 /// - Efficient height-based lookups dengan big-endian encoding
 /// - HOT data path untuk frequent chain state queries
-
 use std::error::Error;
 
 use klomang_core::core::crypto::Hash;
@@ -24,11 +23,11 @@ impl KlomangStorage {
         block_hash: &Hash,
     ) -> Result<Option<ChainIndexRecord>, Box<dyn Error>> {
         let cf_index = self.cf(CF_CHAIN_INDEX)?;
-        
+
         // Placeholder: search dari block hash ke height (slow operation saat ini)
         // Better approach: maintain reverse index dari block hash ke height
         let iter = self.db.iterator_cf(cf_index, rocksdb::IteratorMode::Start);
-        
+
         for entry in iter {
             let (_, value) = entry?;
             let record = bincode::deserialize::<ChainIndexRecord>(&value)?;
@@ -107,8 +106,29 @@ impl KlomangStorage {
         Ok(0) // Empty database
     }
 
+    /// Get block headers starting from height
+    pub fn get_block_headers(&self, start_height: u64, count: u32) -> Result<Vec<klomang_core::BlockHeader>, Box<dyn Error>> {
+        let mut headers = Vec::new();
+        let end_height = start_height + count as u64;
+
+        for height in start_height..end_height {
+            if let Some(record) = self.get_chain_index_by_height(height)? {
+                // Get block to extract header
+                if let Some(block) = self.get_block(&record.tip)? {
+                    headers.push(block.header);
+                }
+            }
+        }
+
+        Ok(headers)
+    }
+
     /// Verify chain index consistency untuk block tertentu
-    pub fn verify_chain_consistency(&self, height: u64, block_hash: &Hash) -> Result<bool, Box<dyn Error>> {
+    pub fn verify_chain_consistency(
+        &self,
+        height: u64,
+        block_hash: &Hash,
+    ) -> Result<bool, Box<dyn Error>> {
         let cf_index = self.cf(CF_CHAIN_INDEX)?;
         let cf_blocks = self.cf(CF_BLOCKS)?;
 
@@ -125,7 +145,11 @@ impl KlomangStorage {
         let block_key = KeyBuilder::block_key(block_hash);
         let block_exists = self.db.get_cf(cf_blocks, &block_key)?.is_some();
         if !block_exists {
-            warn!("Block {} for height {} not found", block_hash.to_hex(), height);
+            warn!(
+                "Block {} for height {} not found",
+                block_hash.to_hex(),
+                height
+            );
             return Ok(false);
         }
 
@@ -146,7 +170,10 @@ impl KlomangStorage {
         let cf_index = self.cf(CF_CHAIN_INDEX)?;
         let start_key = KeyBuilder::height_index_key(start_height);
 
-        let iter = self.db.iterator_cf(cf_index, rocksdb::IteratorMode::From(&start_key, rocksdb::Direction::Forward));
+        let iter = self.db.iterator_cf(
+            cf_index,
+            rocksdb::IteratorMode::From(&start_key, rocksdb::Direction::Forward),
+        );
         let mut results = Vec::new();
 
         for entry in iter {

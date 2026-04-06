@@ -13,24 +13,24 @@
 //! - `miner`: Block template building for mining optimization
 //! - `persistence`: Snapshot management for crash recovery
 
-pub mod policy;
 pub mod graph;
-pub mod network;
 pub mod miner;
+pub mod network;
 pub mod persistence;
+pub mod policy;
 
 // Re-export key types for public API
-pub use policy::{TransactionPolicy, PolicyConfig};
 pub use graph::TransactionGraph;
-pub use network::PeerManager;
 pub use miner::BlockTemplateBuilder;
+pub use network::PeerManager;
 pub use persistence::MempoolSnapshot;
+pub use policy::{PolicyConfig, TransactionPolicy};
 
+use crate::storage::StorageHandle;
+use klomang_core::{Hash, Mempool, MempoolError, SignedTransaction};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::task::JoinHandle;
-use klomang_core::{Mempool, SignedTransaction, Hash, MempoolError};
-use crate::storage::StorageHandle;
 
 /// Advanced Mempool Manager
 /// Integrates all mempool subsystems for production use
@@ -80,8 +80,9 @@ impl AdvancedMempool {
         // Start validation loop
         let core_clone = self.core_mempool.clone();
         let graph_clone = self.graph.clone();
+        let policy_clone = self.policy.clone();
         let validation_handle = tokio::spawn(async move {
-            Self::validation_loop(core_clone, graph_clone).await;
+            Self::validation_loop(core_clone, graph_clone, policy_clone).await;
         });
         *self.validation_handle.lock().unwrap() = Some(validation_handle);
 
@@ -114,6 +115,13 @@ impl AdvancedMempool {
             policy.validate_transaction(&tx)?;
         }
 
+        // Dry-run contract execution if present
+        if !tx.execution_payload.is_empty() {
+            // NOTE: Need access to VM and state for dry-run
+            // For now, assume validation passes
+            log::info!("Contract transaction detected, dry-run validation needed");
+        }
+
         // Check dependencies
         {
             let graph = self.graph.read().unwrap();
@@ -128,7 +136,7 @@ impl AdvancedMempool {
         // NOTE: klomang-core's insert_transaction requires state_manager and utxo_set
         // which are not available in AdvancedMempool context. For now, we only update
         // graph and miner, and rely on graph for transaction validation.
-        let tx_hash = tx.id;
+        let tx_hash = tx.id.clone();
 
         // Update graph
         {
@@ -146,7 +154,10 @@ impl AdvancedMempool {
     }
 
     /// Remove confirmed transactions after block processing
-    pub fn remove_confirmed_transactions(&self, block: &klomang_core::BlockNode) -> Result<(), MempoolError> {
+    pub fn remove_confirmed_transactions(
+        &self,
+        block: &klomang_core::BlockNode,
+    ) -> Result<(), MempoolError> {
         let mut core = self.core_mempool.write().unwrap();
         // NOTE: API changed - remove_confirmed_transactions -> remove_on_block_inclusion
         core.remove_on_block_inclusion(block);
@@ -163,10 +174,26 @@ impl AdvancedMempool {
         Ok(())
     }
 
-    /// Get block template for mining
-    pub fn get_block_template(&self, max_weight: u64) -> Vec<SignedTransaction> {
-        let mut miner = self.miner.write().unwrap();
-        miner.build_template(max_weight)
+    /// Update fee estimates based on current mempool state
+    pub fn update_fee_estimates(&self) {
+        let core = self.core_mempool.read().unwrap();
+        let policy = self.policy.read().unwrap();
+
+        // Get mempool size and capacity
+        let mempool_size = core.get_transaction_count();
+        let max_capacity = 10000; // Assume max capacity
+        let density = mempool_size as f64 / max_capacity as f64;
+
+        // Update fee estimator
+        let mut fee_estimator = policy.fee_estimator.write().unwrap();
+        fee_estimator.update_estimates(mempool_size, density);
+    }
+
+    /// Get current base fee estimate
+    pub fn get_base_fee(&self) -> u64 {
+        let policy = self.policy.read().unwrap();
+        let fee_estimator = policy.fee_estimator.read().unwrap();
+        fee_estimator.estimate_fee(1) // 1-block confirmation
     }
 
     /// Save mempool snapshot
@@ -198,11 +225,24 @@ impl AdvancedMempool {
     async fn validation_loop(
         core_mempool: Arc<RwLock<Mempool>>,
         graph: Arc<RwLock<TransactionGraph>>,
+        policy: Arc<RwLock<TransactionPolicy>>,
     ) {
         let mut interval = tokio::time::interval(Duration::from_secs(60)); // Every minute
 
         loop {
             interval.tick().await;
+
+            // Update fee estimates based on current mempool state
+            {
+                let core = core_mempool.read().unwrap();
+                let policy_read = policy.read().unwrap();
+                let mempool_size = core.get_transaction_count();
+                let max_capacity = 10000; // Assume max capacity
+                let density = mempool_size as f64 / max_capacity as f64;
+
+                let mut fee_estimator = policy_read.fee_estimator.write().unwrap();
+                fee_estimator.update_estimates(mempool_size, density);
+            }
 
             // Revalidate all transactions
             let mut core = core_mempool.write().unwrap();

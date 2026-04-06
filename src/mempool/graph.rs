@@ -3,9 +3,9 @@
 //! Manages transaction dependencies and topological ordering for proper
 //! validation and inclusion sequencing.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use klomang_core::{Hash, SignedTransaction};
 use lru::LruCache;
-use klomang_core::{SignedTransaction, Hash};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Transaction dependency graph
 pub struct TransactionGraph {
@@ -52,9 +52,14 @@ impl TransactionGraph {
         let mut tx_parents = HashSet::new();
         for input in &tx.inputs {
             // Use prev_tx and index to identify parent transaction
-            if let Some(parent_hash) = self.find_spending_transaction(&(input.prev_tx.clone(), input.index)) {
+            if let Some(parent_hash) =
+                self.find_spending_transaction(&(input.prev_tx.clone(), input.index))
+            {
                 tx_parents.insert(parent_hash.clone());
-                self.children.entry(parent_hash.clone()).or_insert(HashSet::new()).insert(hash.clone());
+                self.children
+                    .entry(parent_hash.clone())
+                    .or_insert(HashSet::new())
+                    .insert(hash.clone());
             }
         }
 
@@ -84,7 +89,9 @@ impl TransactionGraph {
 
         // Check if all parents exist
         for input in &tx.inputs {
-            if let Some(parent_hash) = self.find_spending_transaction(&(input.prev_tx.clone(), input.index)) {
+            if let Some(parent_hash) =
+                self.find_spending_transaction(&(input.prev_tx.clone(), input.index))
+            {
                 if !self.transactions.contains_key(&parent_hash) {
                     return Err(format!("Missing parent transaction: {}", parent_hash));
                 }
@@ -201,7 +208,13 @@ impl TransactionGraph {
     }
 
     /// DFS for topological sort
-    fn dfs(&self, hash: Hash, visited: &mut HashSet<Hash>, temp_visited: &mut HashSet<Hash>, order: &mut Vec<Hash>) {
+    fn dfs(
+        &self,
+        hash: Hash,
+        visited: &mut HashSet<Hash>,
+        temp_visited: &mut HashSet<Hash>,
+        order: &mut Vec<Hash>,
+    ) {
         if visited.contains(&hash) {
             return;
         }

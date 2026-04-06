@@ -6,11 +6,11 @@
 //! - Event history loading
 //! - Timestamp management
 
+use super::types::{KlomangEvent, StateError, StateResult};
+use crate::storage::StorageHandle;
+use klomang_core::{BlockNode, Hash};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;
-use klomang_core::{BlockNode, Hash};
-use crate::storage::StorageHandle;
-use super::types::{KlomangEvent, StateResult, StateError};
 
 /// Event bus for broadcasting state changes
 pub struct EventBus {
@@ -31,7 +31,8 @@ impl EventBus {
 
     /// Emit an event to all subscribers
     pub fn emit(&self, event: KlomangEvent) -> StateResult<()> {
-        self.tx.send(event)
+        self.tx
+            .send(event)
             .map_err(|_| StateError::CoreValidationError("Broadcast channel closed".to_string()))?;
         Ok(())
     }
@@ -107,10 +108,7 @@ impl EventOps {
     }
 
     /// Emit a state recovered event
-    pub fn emit_state_recovered(
-        event_bus: &EventBus,
-        _recovery_point: Hash,
-    ) -> StateResult<()> {
+    pub fn emit_state_recovered(event_bus: &EventBus, _recovery_point: Hash) -> StateResult<()> {
         let event = KlomangEvent::VerkleStateMismatch {
             expected_root: "previous".to_string(),
             actual_root: "recovered".to_string(),
@@ -120,10 +118,7 @@ impl EventOps {
     }
 
     /// Persist event to storage for historical tracking
-    pub fn persist_event(
-        event: &KlomangEvent,
-        _storage: &StorageHandle,
-    ) -> StateResult<()> {
+    pub fn persist_event(event: &KlomangEvent, _storage: &StorageHandle) -> StateResult<()> {
         // Serialize event (conceptual - not actually persisting in this version)
         let _event_bytes = bincode::serialize(event)
             .map_err(|e| StateError::StorageError(format!("Failed to serialize event: {}", e)))?;
@@ -132,7 +127,8 @@ impl EventOps {
         let timestamp = EventOps::current_timestamp_ms();
         let event_key = format!("event:{}", timestamp);
 
-        log::debug!("[EVENT] Persisted event: {} ({} bytes)", 
+        log::debug!(
+            "[EVENT] Persisted event: {} ({} bytes)",
             match event {
                 KlomangEvent::BlockAccepted { .. } => "BlockAccepted",
                 KlomangEvent::BlockRejected { .. } => "BlockRejected",

@@ -17,18 +17,19 @@
 /// - Performance through LRU cache + bloom filter
 /// - Thread safety via Arc<RwLock<>> wrapper
 /// - Disk efficiency via Hot/Cold data separation
-
+pub mod adapter;
 pub mod config;
 pub mod db;
 pub mod keys;
 pub mod ops_block;
-pub mod ops_tx;
 pub mod ops_chain;
+pub mod ops_tx;
 pub mod pruning;
 pub mod stats;
 
 // Re-export main types untuk convenience
 #[allow(unused_imports)]
+pub use adapter::{RocksDBStorageAdapter, UtxoStorage};
 pub use config::PruningStrategy;
 pub use db::{ChainIndexRecord, KlomangStorage, StorageHandle};
 #[allow(unused_imports)]

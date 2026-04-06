@@ -1,9 +1,8 @@
-/// Cache & Memory Tuning untuk Production-Grade Blockchain Storage
-/// Menggunakan BlockBasedOptions dengan LRU Cache, Bloom Filter, 
-/// background job tuning, metrics monitoring, WAL tuning, dan pruning strategy
-
-use rocksdb::{BlockBasedOptions, Cache, Options};
 use log::info;
+/// Cache & Memory Tuning untuk Production-Grade Blockchain Storage
+/// Menggunakan BlockBasedOptions dengan LRU Cache, Bloom Filter,
+/// background job tuning, metrics monitoring, WAL tuning, dan pruning strategy
+use rocksdb::{BlockBasedOptions, Cache, Options};
 
 /// Strategi Pruning untuk mengontrol pertumbuhan disk database
 /// Archive: Simpan semua blocks selamanya, cocok untuk full archive nodes
@@ -130,18 +129,18 @@ pub fn build_large_cache_options() -> BlockBasedOptions {
 /// - Subcompactions: Parallel compaction pada satu CF untuk faster data reorganization
 pub fn configure_background_jobs(opts: &mut Options) {
     let num_cpus = num_cpus::get() as i32;
-    
+
     // Parallelism: Gunakan semua CPU cores untuk memaksimalkan concurrent operations
     // Critical untuk blockchain dengan high write throughput dan frequent compactions
     opts.increase_parallelism(num_cpus);
     info!("Configured parallelism: {} CPU cores", num_cpus);
-    
+
     // Max background jobs: Pisahkan jalur Flush dan Compaction untuk stability
     // 4 jobs: 2 untuk flush, 2 untuk compaction menggunakan standard 50/50 split
     // Ini mencegah compaction threads dari starving flush operations saat heavy writes
     opts.set_max_background_jobs(4);
     info!("Configured max background jobs: 4 (2 flush + 2 compaction lanes)");
-    
+
     // Max subcompactions: Parallel compaction pada satu Column Family
     // 2 subcompactions memungkinkan 2 CompactionJob berjalan parallel pada CF yang sama
     // Mempercepat compaction process tanpa overwhelming disk I/O
@@ -152,7 +151,7 @@ pub fn configure_background_jobs(opts: &mut Options) {
 /// Konfigurasi Write Stall Protection & Memtable Tuning untuk mencegah Node freeze
 /// Saat sinkronisasi besar (Blockchain IBD), tuning ini memberikan ruang napas
 /// pada proses compaction dan flush untuk memastikan writes tidak ter-stall
-/// 
+///
 /// Critical untuk blockchain dengan massive block ingestion
 pub fn configure_write_stall_protection(opts: &mut Options) {
     // Write Buffer Size: 128MB per Memtable (meningkat dari default 64MB)

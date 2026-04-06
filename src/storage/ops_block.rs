@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 /// Block Operations Module
 /// Menangani semua operasi terkait penyimpanan dan pengambilan blocks di blockchain
 ///
@@ -5,16 +6,16 @@
 /// - Atomic writes menggunakan WriteBatch untuk consistency
 /// - Zero-copy reads menggunakan DBPinnableSlice
 /// - Efficient range queries dengan prefix seeking
-
 use std::error::Error;
-use std::collections::HashSet;
 
-use klomang_core::{core::crypto::Hash, core::dag::BlockNode, core::state::transaction::Transaction};
+use klomang_core::{
+    core::crypto::Hash, core::dag::BlockNode, core::state::transaction::Transaction,
+};
 use log::{info, warn};
-use rocksdb::{Direction, IteratorMode, DBPinnableSlice, WriteBatch};
+use rocksdb::{DBPinnableSlice, Direction, IteratorMode, WriteBatch};
 
 use super::db::KlomangStorage;
-use super::db::{CF_BLOCKS, CF_TRANSACTIONS, CF_CHAIN_INDEX, ChainIndexRecord};
+use super::db::{CF_BLOCKS, CF_CHAIN_INDEX, CF_TRANSACTIONS, ChainIndexRecord};
 use super::keys::KeyBuilder;
 
 impl KlomangStorage {
@@ -40,7 +41,10 @@ impl KlomangStorage {
         // Consistency validation with snapshot read (isolation)
         let snapshot = self.get_snapshot_read();
         if snapshot.get_cf(cf_blocks, &block_key)?.is_some() {
-            warn!("Block {} already exists, skipping duplicate write", block.header.id.to_hex());
+            warn!(
+                "Block {} already exists, skipping duplicate write",
+                block.header.id.to_hex()
+            );
             // Still check but skip duplicate to prevent accidental overwrite
             return Ok(());
         }
@@ -87,12 +91,21 @@ impl KlomangStorage {
         let mut heights_seen = HashSet::new();
         for (_, _, chain_index) in &blocks {
             if !heights_seen.insert(chain_index.height) {
-                return Err(format!("Duplicate height {} in batch payload", chain_index.height).into());
+                return Err(
+                    format!("Duplicate height {} in batch payload", chain_index.height).into(),
+                );
             }
             let hkey = KeyBuilder::height_index_key(chain_index.height);
             if snapshot.get_cf(cf_index, &hkey)?.is_some() {
-                warn!("Height {} already exists in DB, skipping block on this height", chain_index.height);
-                return Err(format!("Height conflict with existing chain index: {}", chain_index.height).into());
+                warn!(
+                    "Height {} already exists in DB, skipping block on this height",
+                    chain_index.height
+                );
+                return Err(format!(
+                    "Height conflict with existing chain index: {}",
+                    chain_index.height
+                )
+                .into());
             }
         }
 
@@ -103,7 +116,10 @@ impl KlomangStorage {
             let height_key = KeyBuilder::height_index_key(chain_index.height);
 
             if snapshot.get_cf(cf_blocks, &block_key)?.is_some() {
-                warn!("Block {} already exists, skipping duplicate write", block.header.id.to_hex());
+                warn!(
+                    "Block {} already exists, skipping duplicate write",
+                    block.header.id.to_hex()
+                );
                 continue;
             }
 
@@ -154,7 +170,11 @@ impl KlomangStorage {
 
     /// Range scan block dari start_height sampai end_height (inklusif)
     /// Menggunakan ReadOptions prefix seek dan iterator langsung untuk efficient range queries
-    pub fn get_blocks_range(&self, start_height: u64, end_height: u64) -> Result<Vec<BlockNode>, Box<dyn Error>> {
+    pub fn get_blocks_range(
+        &self,
+        start_height: u64,
+        end_height: u64,
+    ) -> Result<Vec<BlockNode>, Box<dyn Error>> {
         if start_height > end_height {
             return Ok(Vec::new());
         }
@@ -164,7 +184,9 @@ impl KlomangStorage {
 
         let start_key = KeyBuilder::height_index_key(start_height);
 
-        let iter = self.db.iterator_cf(cf_index, IteratorMode::From(&start_key, Direction::Forward));
+        let iter = self
+            .db
+            .iterator_cf(cf_index, IteratorMode::From(&start_key, Direction::Forward));
         let mut output = Vec::new();
 
         for entry in iter {
@@ -177,7 +199,8 @@ impl KlomangStorage {
                 let index = bincode::deserialize::<ChainIndexRecord>(&value)?;
                 let block_key = KeyBuilder::block_key(&index.tip);
 
-                let pinned: Option<DBPinnableSlice> = self.db.get_pinned_cf(cf_blocks, &block_key)?;
+                let pinned: Option<DBPinnableSlice> =
+                    self.db.get_pinned_cf(cf_blocks, &block_key)?;
                 if let Some(slice) = pinned {
                     let data: &[u8] = slice.as_ref();
                     let block = bincode::deserialize::<BlockNode>(data)?;

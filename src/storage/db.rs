@@ -1,23 +1,24 @@
 /// KlomangStorage - Blockchain Storage Engine Core
 /// Menyediakan durability, consistency guarantee, dan thread-safe access
-/// 
+///
 /// Modul operasi dispisahkan untuk Single Responsibility Principle:
 /// - ops_block.rs: Block save/read operations
 /// - ops_tx.rs: Transaction operations
 /// - ops_chain.rs: Chain index & metadata operations
 /// - pruning.rs: Pruning & garbage collection
 /// - stats.rs: Monitoring & statistics
-
 use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use log::{error, info, warn};
-use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, DB, DBCompactionStyle, Options, Snapshot, SliceTransform};
+use rocksdb::{
+    ColumnFamily, ColumnFamilyDescriptor, DB, DBCompactionStyle, Options, SliceTransform, Snapshot,
+};
 
 use super::config;
-use super::keys::KeyBuilder;
 use super::keys::CURRENT_DB_VERSION;
+use super::keys::KeyBuilder;
 
 /// StorageHandle adalah Arc<RwLock<KlomangStorage>> untuk thread-safe access
 /// Memungkinkan multiple threads untuk read concurrent dan exclusive write
@@ -26,7 +27,7 @@ pub type StorageHandle = Arc<RwLock<KlomangStorage>>;
 pub const CF_BLOCKS: &str = "Blocks";
 pub const CF_TRANSACTIONS: &str = "Transactions";
 pub const CF_CHAIN_INDEX: &str = "ChainIndex";
-pub const CF_STATE: &str = "State";  // Verkle Tree and UTXO commitment storage
+pub const CF_STATE: &str = "State"; // Verkle Tree and UTXO commitment storage
 
 /// StorageStats menyimpan performance metrics dari RocksDB untuk monitoring dan tuning
 #[derive(Debug, Clone)]
@@ -56,7 +57,7 @@ pub struct ChainIndexRecord {
 
 /// KlomangStorage adalah blockchain storage engine dengan durability & consistency guarantee
 /// Menggunakan RocksDB dengan optimisasi untuk blockchain use case
-/// 
+///
 /// Untuk operations, lihat module terpisah:
 /// - ops_block, ops_tx, ops_chain, pruning, stats
 pub struct KlomangStorage {
@@ -73,7 +74,10 @@ impl KlomangStorage {
     /// - COLD CF (Blocks): ZSTD compression, disk-optimized
     /// - HOT CF (Transactions & ChainIndex): LZ4 compression, fast access
     /// - Write protection: 128MB memtables x4, Level0 management
-    pub fn open(path: impl AsRef<Path>, pruning_strategy: config::PruningStrategy) -> Result<Self, Box<dyn Error>> {
+    pub fn open(
+        path: impl AsRef<Path>,
+        pruning_strategy: config::PruningStrategy,
+    ) -> Result<Self, Box<dyn Error>> {
         let path = path.as_ref();
         std::fs::create_dir_all(path)?;
 
@@ -92,7 +96,7 @@ impl KlomangStorage {
 
         // Resource Management
         options.set_max_open_files(1000);
-        
+
         // Write Stall Protection & Memtable Tuning untuk EXTREME blockchain loads
         config::configure_write_stall_protection(&mut options);
 
@@ -117,11 +121,11 @@ impl KlomangStorage {
         options.create_missing_column_families(true);
 
         // Column Family Configurations dengan Hot/Cold Data Separation
-        
+
         // Default CF
         let mut cf_default_opts = Options::default();
         cf_default_opts.create_if_missing(true);
-        
+
         // COLD CF (Blocks): ZSTD compression, larger files, standard bloom filter
         let mut cf_blocks_opts = Options::default();
         cf_blocks_opts.create_if_missing(true);
@@ -130,7 +134,7 @@ impl KlomangStorage {
         let cold_block_opts = config::build_cold_data_options();
         cf_blocks_opts.set_block_based_table_factory(&cold_block_opts);
         info!("Configured CF_BLOCKS (COLD data): ZSTD compression, optimized for disk efficiency");
-        
+
         // HOT CF (Transactions): LZ4 compression, smaller files, aggressive bloom filter
         let mut cf_txs_opts = Options::default();
         cf_txs_opts.create_if_missing(true);
@@ -139,7 +143,7 @@ impl KlomangStorage {
         let hot_block_opts = config::build_hot_data_options();
         cf_txs_opts.set_block_based_table_factory(&hot_block_opts);
         info!("Configured CF_TRANSACTIONS (HOT data): LZ4 compression, optimized for fast access");
-        
+
         // HOT CF (ChainIndex): LZ4 compression, smaller files, aggressive bloom filter
         let mut cf_index_opts = Options::default();
         cf_index_opts.create_if_missing(true);
@@ -147,18 +151,22 @@ impl KlomangStorage {
         config::configure_hot_cf_options(&mut cf_index_opts);
         let hot_index_block_opts = config::build_hot_data_options();
         cf_index_opts.set_block_based_table_factory(&hot_index_block_opts);
-        info!("Configured CF_CHAIN_INDEX (HOT data): LZ4 compression, optimized for fast chain state access");
-        
+        info!(
+            "Configured CF_CHAIN_INDEX (HOT data): LZ4 compression, optimized for fast chain state access"
+        );
+
         // WARM CF (State): Contains Verkle tree and UTXO commitment data
         // Uses ZSTD for good compression (not as frequent as HOT), larger cache than COLD
         let mut cf_state_opts = Options::default();
         cf_state_opts.create_if_missing(true);
         config::configure_write_stall_protection(&mut cf_state_opts);
-        config::configure_cold_cf_options(&mut cf_state_opts);  // Use ZSTD compression
-        let state_block_opts = config::build_cold_data_options();  // 128MB cache for state access
+        config::configure_cold_cf_options(&mut cf_state_opts); // Use ZSTD compression
+        let state_block_opts = config::build_cold_data_options(); // 128MB cache for state access
         // Override cache for state to be larger than regular cold data
         cf_state_opts.set_block_based_table_factory(&state_block_opts);
-        info!("Configured CF_STATE (WARM data): ZSTD compression, optimized for Verkle tree and state commitment persistence");
+        info!(
+            "Configured CF_STATE (WARM data): ZSTD compression, optimized for Verkle tree and state commitment persistence"
+        );
 
         let cfs = vec![
             ColumnFamilyDescriptor::new("default", cf_default_opts),
@@ -168,24 +176,32 @@ impl KlomangStorage {
             ColumnFamilyDescriptor::new(CF_STATE, cf_state_opts),
         ];
 
-        let db = DB::open_cf_descriptors(&options, path, cfs)
-            .map_err(|e| {
-                error!("Failed to open database at {}: {}", path.display(), e);
-                e
-            })?;
+        let db = DB::open_cf_descriptors(&options, path, cfs).map_err(|e| {
+            error!("Failed to open database at {}: {}", path.display(), e);
+            e
+        })?;
 
         info!("KlomangStorage opened successfully at: {}", path.display());
         info!("Blockchain Storage Architecture:");
         info!("  - COLD Data (Blocks CF): ZSTD compression, 64MB cache, 32KB block size");
-        info!("  - HOT Data (Transactions CF): LZ4 compression, 256MB cache, aggressive Bloom filter");
-        info!("  - HOT Data (ChainIndex CF): LZ4 compression, 256MB cache, aggressive Bloom filter");
-        info!("  - WARM Data (State CF): ZSTD compression, 128MB cache for Verkle tree & UTXO commitment");
+        info!(
+            "  - HOT Data (Transactions CF): LZ4 compression, 256MB cache, aggressive Bloom filter"
+        );
+        info!(
+            "  - HOT Data (ChainIndex CF): LZ4 compression, 256MB cache, aggressive Bloom filter"
+        );
+        info!(
+            "  - WARM Data (State CF): ZSTD compression, 128MB cache for Verkle tree & UTXO commitment"
+        );
         info!("  - Write Protection: 128MB memtables x4, Level0 slowdown@20, stop@36");
-        
+
         // Create storage dan perform schema validation
-        let storage = Self { db, pruning_strategy };
+        let storage = Self {
+            db,
+            pruning_strategy,
+        };
         storage.validate_schema()?;
-        
+
         Ok(storage)
     }
 
@@ -197,11 +213,15 @@ impl KlomangStorage {
         match self.db.get_cf(cf_default, &version_key)? {
             Some(version_bytes) => {
                 let stored_version = u32::from_le_bytes(
-                    version_bytes[..4].try_into()
-                        .map_err(|_| "Invalid version bytes in metadata")?
+                    version_bytes[..4]
+                        .try_into()
+                        .map_err(|_| "Invalid version bytes in metadata")?,
                 );
 
-                info!("Found database version: {}, current app version: {}", stored_version, CURRENT_DB_VERSION);
+                info!(
+                    "Found database version: {}, current app version: {}",
+                    stored_version, CURRENT_DB_VERSION
+                );
 
                 if stored_version > CURRENT_DB_VERSION {
                     let msg = format!(
@@ -226,11 +246,14 @@ impl KlomangStorage {
             }
             None => {
                 // New database, initialize with current version
-                info!("New database detected, initializing with schema version {}", CURRENT_DB_VERSION);
-                
+                info!(
+                    "New database detected, initializing with schema version {}",
+                    CURRENT_DB_VERSION
+                );
+
                 let version_bytes = CURRENT_DB_VERSION.to_le_bytes();
                 self.db.put_cf(cf_default, &version_key, &version_bytes)?;
-                
+
                 info!("Database schema version initialized successfully");
                 Ok(())
             }
@@ -252,7 +275,10 @@ impl KlomangStorage {
 
     /// Open dengan automatic recovery jika database corrupt
     /// Ini adalah entry point yang recommended untuk production nodes
-    pub fn open_with_recovery(path: impl AsRef<Path>, pruning_strategy: config::PruningStrategy) -> Result<Self, Box<dyn Error>> {
+    pub fn open_with_recovery(
+        path: impl AsRef<Path>,
+        pruning_strategy: config::PruningStrategy,
+    ) -> Result<Self, Box<dyn Error>> {
         let path = path.as_ref();
         info!("Attempting to open KlomangStorage at: {}", path.display());
 

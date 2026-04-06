@@ -6,9 +6,8 @@
 //! - Rate limiting and backpressure
 //! - Orphan block processing retry loop
 
-
-use tokio::sync::mpsc;
 use crate::ingestion_guard::IngestionMessage;
+use tokio::sync::mpsc;
 
 /// Configuration for ingestion queue
 pub struct IngestionConfig {
@@ -67,12 +66,7 @@ impl IngestionOps {
     }
 
     /// Log ingestion statistics
-    pub fn log_stats(
-        processed: u64,
-        rejected: u64,
-        queue_size: usize,
-        orphans: usize,
-    ) {
+    pub fn log_stats(processed: u64, rejected: u64, queue_size: usize, orphans: usize) {
         log::info!(
             "[INGESTION] Processed: {}, Rejected: {}, Queue: {}, Orphans: {}",
             processed,

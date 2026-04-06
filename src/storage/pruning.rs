@@ -5,14 +5,13 @@
 /// - Efficient range deletion menggunakan RocksDB delete_range
 /// - Batch deletes untuk minimize I/O overhead
 /// - Respects PruningStrategy configuration untuk Archive vs Pruned mode
-
 use std::error::Error;
 
 use log::{info, warn};
 use rocksdb::{Direction, IteratorMode, WriteBatch};
 
 use super::config;
-use super::db::{KlomangStorage, CF_BLOCKS, CF_TRANSACTIONS, CF_CHAIN_INDEX, ChainIndexRecord};
+use super::db::{CF_BLOCKS, CF_CHAIN_INDEX, CF_TRANSACTIONS, ChainIndexRecord, KlomangStorage};
 use super::keys::KeyBuilder;
 
 impl KlomangStorage {
@@ -43,7 +42,10 @@ impl KlomangStorage {
         let cf_index = self.cf(CF_CHAIN_INDEX)?;
 
         // Get database size before pruning
-        let db_size_before = match self.db.property_int_value("rocksdb.estimate-live-data-size") {
+        let db_size_before = match self
+            .db
+            .property_int_value("rocksdb.estimate-live-data-size")
+        {
             Ok(Some(val)) => val as u64,
             _ => 0,
         };
@@ -71,7 +73,11 @@ impl KlomangStorage {
                 return Ok((0, 0));
             }
             config::PruningStrategy::Pruned(config_keep) => {
-                if keep_blocks == 0 { config_keep } else { keep_blocks }
+                if keep_blocks == 0 {
+                    config_keep
+                } else {
+                    keep_blocks
+                }
             }
         };
 
@@ -96,7 +102,8 @@ impl KlomangStorage {
         let start_key = KeyBuilder::height_index_key(0);
         let end_key = KeyBuilder::height_index_key(prune_before_height);
 
-        let iter = snapshot.iterator_cf(cf_index, IteratorMode::From(&start_key, Direction::Forward));
+        let iter =
+            snapshot.iterator_cf(cf_index, IteratorMode::From(&start_key, Direction::Forward));
 
         for entry in iter {
             match entry {
@@ -148,7 +155,10 @@ impl KlomangStorage {
         self.db.flush_cf(cf_blocks)?;
         self.db.flush_cf(cf_txs)?;
 
-        let db_size_after = match self.db.property_int_value("rocksdb.estimate-live-data-size") {
+        let db_size_after = match self
+            .db
+            .property_int_value("rocksdb.estimate-live-data-size")
+        {
             Ok(Some(val)) => val as u64,
             _ => 0,
         };
@@ -175,7 +185,10 @@ impl KlomangStorage {
     /// Useful untuk monitoring disk usage
     #[allow(dead_code)]
     pub fn estimate_database_size(&self) -> Result<u64, Box<dyn Error>> {
-        match self.db.property_int_value("rocksdb.estimate-live-data-size") {
+        match self
+            .db
+            .property_int_value("rocksdb.estimate-live-data-size")
+        {
             Ok(Some(val)) => Ok(val as u64),
             _ => Ok(0),
         }

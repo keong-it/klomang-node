@@ -1,7 +1,6 @@
 /// Prefix & Key Design untuk Blockchain Storage
 /// Menggunakan prefix-based key scheme untuk memudahkan iterasi dan prefix scanning
 /// Standar consensus dengan klomang-core
-
 use klomang_core::core::crypto::Hash;
 
 /// Prefix untuk block storage: b<hash_in_hex>

@@ -1,19 +1,21 @@
-mod storage;
-mod state;
 mod ingestion_guard;
-mod network;
 mod mempool;
+mod network;
+mod rpc;
+mod state;
+mod storage;
+mod vm;
 
+use crate::ingestion_guard::{IngestionMessage, RateLimiter, create_ingestion_queue};
+use crate::state::ingestion::{IngestionReceiver, IngestionSender};
 use clap::Parser;
 use env_logger;
 use klomang_core::{Dag, UtxoSet};
 use log::info;
-use storage::{ChainIndexRecord, KlomangStorage, StorageHandle};
+use std::collections::HashSet;
 use std::error::Error;
 use std::sync::{Arc, RwLock};
-use std::collections::HashSet;
-use crate::state::ingestion::{IngestionSender, IngestionReceiver};
-use crate::ingestion_guard::{IngestionMessage, RateLimiter, create_ingestion_queue};
+use storage::{ChainIndexRecord, KlomangStorage, StorageHandle};
 
 #[derive(Parser)]
 #[command(name = "klomang-node")]
@@ -34,8 +36,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let dag = Dag::new();
     let utxo = UtxoSet::new();
 
-    info!("Initialized klomang-core Dag ({} blocks) and UtxoSet", dag.get_block_count());
-    println!("klomang-core loaded: Dag count={} UtxoSet entries={}", dag.get_block_count(), utxo.utxos.len());
+    info!(
+        "Initialized klomang-core Dag ({} blocks) and UtxoSet",
+        dag.get_block_count()
+    );
+    println!(
+        "klomang-core loaded: Dag count={} UtxoSet entries={}",
+        dag.get_block_count(),
+        utxo.utxos.len()
+    );
 
     // Open storage dengan automatic recovery jika database corrupt
     // Konfigurasi mode pruning via env: KLPM_PRUNING_MODE=archive|pruned
@@ -43,7 +52,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Ok("archive") => storage::config::PruningStrategy::Archive,
         _ => storage::config::PruningStrategy::Pruned(1000),
     };
-    let storage: StorageHandle = KlomangStorage::open_with_recovery("./data/klomang_db", pruning_mode)?.into_handle();
+    let storage: StorageHandle =
+        KlomangStorage::open_with_recovery("./data/klomang_db", pruning_mode)?.into_handle();
 
     // Initialize State Manager - central orchestration component
     let state_manager = match state::KlomangStateManager::new(storage.clone()) {
@@ -66,12 +76,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("✅ Mempool background tasks started");
 
     // Initialize Ingestion Guard
-    let (ingestion_sender, mut ingestion_receiver, rate_limiter) = create_ingestion_queue(10_000, 1000);
+    let (ingestion_sender, mut ingestion_receiver, rate_limiter) =
+        create_ingestion_queue(10_000, 1000);
     println!("✅ Ingestion queue initialized with capacity 10,000 and rate limit 1000 blocks/sec");
 
     // Initialize Network Manager - P2P communication layer
     let network_config = network::NetworkConfig::default();
-    let mut network_manager = match network::NetworkManager::new(storage.clone(), network_config, ingestion_sender.clone(), state_manager.clone()).await {
+    let mut network_manager = match network::NetworkManager::new(
+        storage.clone(),
+        network_config,
+        ingestion_sender.clone(),
+        state_manager.clone(),
+    )
+    .await
+    {
         Ok(nm) => {
             println!("✅ Network Manager initialized successfully");
             println!("   Local PeerID: {}", nm.local_peer_id());
@@ -91,7 +109,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 IngestionMessage::Block(block) => {
                     log::info!("[INGESTION] Processing block {}", block.header.id);
                     // Process block through state manager
-                    if let Err(e) = state_manager_clone.write().map_err(|e| format!("State manager lock poisoned: {}", e)).unwrap().process_block(block) {
+                    if let Err(e) = state_manager_clone
+                        .write()
+                        .map_err(|e| format!("State manager lock poisoned: {}", e))
+                        .unwrap()
+                        .process_block(block)
+                    {
                         log::error!("[INGESTION] Failed to process block: {}", e);
                     }
                 }
@@ -109,6 +132,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             log::error!("Network error: {}", e);
         }
     });
+
+    // Start RPC server
+    let rpc_server = rpc::RpcServer::new(state_manager.clone());
+    tokio::spawn(async move {
+        if let Err(e) = rpc_server.start(8545).await {
+            log::error!("RPC server error: {}", e);
+        }
+    });
+    println!("✅ RPC server started on port 8545");
 
     // TODO: Uncomment test code when BlockHeader is available
     /*
@@ -228,9 +260,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Graceful shutdown
     info!("Preparing graceful shutdown");
-    storage.read().map_err(|e| format!("Storage read lock poisoned: {}", e))?.shutdown()?;
+    storage
+        .read()
+        .map_err(|e| format!("Storage read lock poisoned: {}", e))?
+        .shutdown()?;
     info!("Klomang Node shutdown completed successfully");
 
     Ok(())
 }
-

@@ -5,7 +5,6 @@
 /// - Efficient property queries dari RocksDB
 /// - Non-blocking stats collection
 /// - Production-grade monitoring support
-
 use std::error::Error;
 
 use log::info;
@@ -29,7 +28,7 @@ impl KlomangStorage {
     pub fn get_storage_stats(&self) -> Result<StorageStats, Box<dyn Error>> {
         // Estimate dari RocksDB properties jika stats tidak tersedia
         // In real production, bisa menggunakan continuous monitoring untuk detailed metrics
-        
+
         // Try to get SST file count
         let num_sst_files = match self.db.property_int_value("rocksdb.num-files-at-level0") {
             Ok(Some(val)) => val as u32,
@@ -37,7 +36,10 @@ impl KlomangStorage {
         };
 
         // Try to get approximate size
-        let db_size_bytes = match self.db.property_int_value("rocksdb.estimate-live-data-size") {
+        let db_size_bytes = match self
+            .db
+            .property_int_value("rocksdb.estimate-live-data-size")
+        {
             Ok(Some(val)) => val as u64,
             _ => 0,
         };
@@ -47,8 +49,8 @@ impl KlomangStorage {
         let cache_hit_rate = 0.0; // Placeholder for actual measurement
 
         let stats = StorageStats {
-            reads_per_sec: 0,     // Would need continuous monitoring
-            writes_per_sec: 0,    // Would need continuous monitoring
+            reads_per_sec: 0,  // Would need continuous monitoring
+            writes_per_sec: 0, // Would need continuous monitoring
             cache_hit_rate,
             compaction_time_ms: 0, // Would need statistics tracking
             num_sst_files,

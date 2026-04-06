@@ -5,22 +5,24 @@
 /// - Zero-copy reads menggunakan DBPinnableSlice
 /// - Efficient queries dengan prefix seeking
 /// - HOT data path dengan LZ4 fast decompression
-
 use std::error::Error;
 
 use klomang_core::core::state::transaction::Transaction;
 use log::warn;
 use rocksdb::DBPinnableSlice;
 
-use super::db::KlomangStorage;
 use super::db::CF_TRANSACTIONS;
+use super::db::KlomangStorage;
 use super::keys::KeyBuilder;
 use klomang_core::core::crypto::Hash;
 
 impl KlomangStorage {
     /// Get transactions untuk block tertentu dengan zero-copy read
     /// Transaction disimpan dalam CF_TRANSACTIONS dengan block hash sebagai key
-    pub fn get_transactions(&self, block_hash: &Hash) -> Result<Option<Vec<Transaction>>, Box<dyn Error>> {
+    pub fn get_transactions(
+        &self,
+        block_hash: &Hash,
+    ) -> Result<Option<Vec<Transaction>>, Box<dyn Error>> {
         let cf_txs = self.cf(CF_TRANSACTIONS)?;
         let key = KeyBuilder::block_key(block_hash);
 
@@ -37,7 +39,10 @@ impl KlomangStorage {
 
     /// Verify transaction consistency untuk block tertentu
     /// Member fungsi ini memastikan transactions ada dan valid
-    pub fn verify_transactions_consistency(&self, block_hash: &Hash) -> Result<bool, Box<dyn Error>> {
+    pub fn verify_transactions_consistency(
+        &self,
+        block_hash: &Hash,
+    ) -> Result<bool, Box<dyn Error>> {
         let cf_txs = self.cf(CF_TRANSACTIONS)?;
         let key = KeyBuilder::block_key(block_hash);
 
@@ -65,5 +70,25 @@ impl KlomangStorage {
         }
 
         Ok(count)
+    }
+
+    /// Get transaction by hash (searches across all blocks)
+    pub fn get_transaction(&self, tx_hash: &Hash) -> Result<Option<Transaction>, Box<dyn Error>> {
+        let cf_txs = self.cf(CF_TRANSACTIONS)?;
+
+        // Iterate through all transaction blocks to find the hash
+        let iter = self.db.iterator_cf(cf_txs, rocksdb::IteratorMode::Start);
+
+        for entry in iter {
+            let (_, value) = entry?;
+            let txs: Vec<Transaction> = bincode::deserialize(&value)?;
+            for tx in txs {
+                if &tx.id == tx_hash {
+                    return Ok(Some(tx));
+                }
+            }
+        }
+
+        Ok(None)
     }
 }

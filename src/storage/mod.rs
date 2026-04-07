@@ -30,7 +30,7 @@ pub mod stats;
 // Re-export main types untuk convenience
 #[allow(unused_imports)]
 pub use adapter::{RocksDBStorageAdapter, UtxoStorage};
-pub use config::PruningStrategy;
+
 pub use db::{ChainIndexRecord, KlomangStorage, StorageHandle};
 #[allow(unused_imports)]
 pub use keys::KeyBuilder;

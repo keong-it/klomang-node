@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Block ingestion queue and worker for Klomang Node
 //!
 //! This module handles:

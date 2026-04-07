@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /// Pruning & Garbage Collection Module
 /// Menangani semua operasi terkait pruning, cleanup, dan disk space management
 ///

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Mempool Persistence for Crash Recovery
 //!
 //! Saves and loads mempool snapshots to/from RocksDB for persistence
@@ -22,7 +24,7 @@ impl MempoolSnapshot {
     }
 
     /// Save mempool snapshot
-    pub fn save(&self, mempool: &Mempool) -> Result<(), String> {
+    pub fn save(&self, _mempool: &Mempool) -> Result<(), String> {
         // NOTE: get_all_transactions removed from klomang-core API
         // Use get_top_transactions instead or return empty snapshot
         let transactions: Vec<SignedTransaction> = vec![]; // TODO: implement proper snapshot

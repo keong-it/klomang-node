@@ -1,4 +1,12 @@
+#![allow(dead_code)]
+
 use klomang_core::BlockNode;
+use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
+use std::time::Instant;
+use tokio::sync::mpsc;
+
 /// Ingestion Guard Components for KlomangStateManager
 /// Prevents node freeze under block flood attacks with bounded processing queue and rate limiting
 
@@ -6,13 +14,8 @@ use klomang_core::BlockNode;
 #[derive(Clone, Debug)]
 pub enum IngestionMessage {
     Block(BlockNode),
+    Shutdown,
 }
-use libp2p::PeerId;
-use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
-use std::time::Instant;
-use tokio::sync::mpsc;
 
 /// Rate limiter using Token Bucket algorithm for bounded block processing
 #[derive(Clone)]

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /// Chain Index & Metadata Operations Module
 /// Menangani semua operasi terkait chain index, metadata, dan state management
 ///

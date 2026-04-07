@@ -3,9 +3,8 @@
 //! Menyediakan implementasi Storage trait dari klomang-core yang menggunakan
 //! RocksDB sebagai backend penyimpanan persisten untuk Verkle trees dan UTXO data.
 
-use crate::storage::{KlomangStorage, StorageHandle};
+use crate::storage::StorageHandle;
 use klomang_core::core::state::storage::Storage;
-use std::sync::{Arc, RwLock};
 
 /// RocksDB-backed storage adapter untuk klomang-core
 /// Menggunakan CF_STATE untuk menyimpan Verkle tree data dan UTXO state
@@ -42,7 +41,7 @@ impl Storage for RocksDBStorageAdapter {
     }
 
     fn put(&mut self, key: Vec<u8>, value: Vec<u8>) {
-        let mut storage_write = match self.storage.write() {
+        let storage_write = match self.storage.write() {
             Ok(write) => write,
             Err(e) => {
                 log::error!("Failed to acquire storage write lock: {}", e);
@@ -113,7 +112,7 @@ impl UtxoStorage {
         &self,
         utxo_set: &klomang_core::core::state::utxo::UtxoSet,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut storage_write = self
+        let storage_write = self
             .storage
             .write()
             .map_err(|e| format!("Failed to acquire storage write lock: {}", e))?;

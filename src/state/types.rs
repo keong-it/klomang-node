@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Core types and data structures for Klomang State Manager
 //!
 //! This module contains:
@@ -72,7 +74,7 @@ impl UtxoDiff {
 
     /// Add a new UTXO entry to diff
     /// This generates a Verkle leaf node path using blake3 hash
-    pub fn add_utxo(&mut self, txid: Hash, vout: u32, value: u64, script: Vec<u8>) {
+    pub fn add_utxo(&mut self, txid: &Hash, vout: u32, value: u64, script: Vec<u8>) {
         self.added.insert((txid.clone(), vout), (value, script));
 
         log::debug!(
@@ -84,7 +86,7 @@ impl UtxoDiff {
     }
 
     /// Remove a UTXO entry (mark as spent)
-    pub fn remove_utxo(&mut self, txid: Hash, vout: u32) {
+    pub fn remove_utxo(&mut self, txid: &Hash, vout: u32) {
         self.removed.insert((txid.clone(), vout));
 
         log::debug!("[VERKLE] Removed UTXO at ({}, {})", txid.to_hex(), vout);
@@ -150,7 +152,7 @@ impl UtxoDiff {
     /// Verify Verkle proofs against the old root
     pub fn verify_verkle_proofs(
         &self,
-        verkle_tree: &klomang_core::core::state::v_trie::VerkleTree<
+        _verkle_tree: &klomang_core::core::state::v_trie::VerkleTree<
             crate::storage::adapter::RocksDBStorageAdapter,
         >,
     ) -> StateResult<()> {
@@ -297,8 +299,6 @@ impl KlomangEvent {
     }
 }
 
-/// Orphan block pool for handling blocks received before their parents
-#[derive(Clone)]
 /// Enhanced orphan block pool with expiration, batch processing, and metrics
 /// Handles blocks that arrive before their parents, ensuring data integrity
 /// during parallel block propagation and sync prioritization.
@@ -364,16 +364,13 @@ impl OrphanPool {
     /// Get processable batch of orphans grouped by parent, sorted by block height
     /// Returns orphans that can be processed together for batch ingestion
     pub fn get_processable_batch(&mut self, parent: &Hash) -> Option<Vec<BlockNode>> {
-        if let Some(mut orphans) = self.pool.remove(parent) {
+        if let Some(orphans) = self.pool.remove(parent) {
             self.orphan_timestamps.remove(parent);
             let count = orphans.len();
             self.orphan_count.fetch_sub(count, Ordering::Relaxed);
 
-            // Sort by block height for optimal processing order
-            orphans.sort_by_key(|block| block.header.height);
-
             log::info!(
-                "[ORPHAN] Retrieved batch of {} orphans for parent {}, sorted by height",
+                "[ORPHAN] Retrieved batch of {} orphans for parent {}",
                 count,
                 parent.to_hex()
             );

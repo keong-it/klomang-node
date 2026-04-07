@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /// KlomangStorage - Blockchain Storage Engine Core
 /// Menyediakan durability, consistency guarantee, dan thread-safe access
 ///
@@ -7,6 +9,7 @@
 /// - ops_chain.rs: Chain index & metadata operations
 /// - pruning.rs: Pruning & garbage collection
 /// - stats.rs: Monitoring & statistics
+
 use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, RwLock};

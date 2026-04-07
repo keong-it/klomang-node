@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::HashSet;
 /// Block Operations Module
 /// Menangani semua operasi terkait penyimpanan dan pengambilan blocks di blockchain

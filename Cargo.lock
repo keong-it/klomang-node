@@ -2246,7 +2246,7 @@ dependencies = [
 [[package]]
 name = "klomang-core"
 version = "0.1.0"
-source = "git+https://github.com/biotalaut-it/klomang-core?branch=main#b2ca4ff1ff0d7e13feb4369a56bc2f481c0d6839"
+source = "git+https://github.com/biotalaut-it/klomang-core?branch=main#092afb4ce33f77e4ba5cc5139bb162b064ad80d6"
 dependencies = [
  "ark-bls12-381",
  "ark-ec",
@@ -2274,6 +2274,7 @@ dependencies = [
  "async-trait",
  "bincode",
  "blake3",
+ "bytes",
  "clap",
  "either",
  "env_logger",
@@ -2293,6 +2294,7 @@ dependencies = [
  "sysinfo",
  "tempfile",
  "tokio",
+ "tokio-util",
  "void",
  "warp",
 ]

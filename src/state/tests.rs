@@ -15,7 +15,6 @@ use std::sync::Mutex;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     /// Test basic UTXO operations
     #[test]
@@ -28,15 +27,15 @@ mod tests {
         let txid2 = Hash::new(b"tx2");
 
         // Test adding UTXOs
-        utxo_diff.add_utxo(txid1, 0, 1000, vec![1, 2, 3]);
-        utxo_diff.add_utxo(txid1, 1, 2000, vec![4, 5, 6]);
+        utxo_diff.add_utxo(&txid1, 0, 1000, vec![1, 2, 3]);
+        utxo_diff.add_utxo(&txid1, 1, 2000, vec![4, 5, 6]);
 
         assert_eq!(utxo_diff.added.len(), 2);
         assert_eq!(utxo_diff.removed.len(), 0);
 
         // Test removing UTXOs
-        utxo_diff.remove_utxo(txid2, 0);
-        utxo_diff.remove_utxo(txid2, 1);
+        utxo_diff.remove_utxo(&txid2, 0);
+        utxo_diff.remove_utxo(&txid2, 1);
 
         assert_eq!(utxo_diff.added.len(), 2);
         assert_eq!(utxo_diff.removed.len(), 2);
@@ -53,11 +52,11 @@ mod tests {
         let txid2 = Hash::new(b"tx2");
 
         // Add some UTXOs
-        utxo_diff.add_utxo(txid1, 0, 1000, vec![1, 2, 3]);
-        utxo_diff.add_utxo(txid1, 1, 2000, vec![4, 5, 6]);
+        utxo_diff.add_utxo(&txid1, 0, 1000, vec![1, 2, 3]);
+        utxo_diff.add_utxo(&txid1, 1, 2000, vec![4, 5, 6]);
 
         // Remove some UTXOs
-        utxo_diff.remove_utxo(txid2, 0);
+        utxo_diff.remove_utxo(&txid2, 0);
 
         let mut utxo_set = UtxoSet::new();
 
@@ -153,8 +152,8 @@ mod tests {
         let mut utxo_diff = UtxoDiff::new_with_roots(old_root, new_root);
 
         let txid = Hash::new(b"test_tx");
-        utxo_diff.add_utxo(txid, 0, 1000, vec![1, 2, 3]);
-        utxo_diff.remove_utxo(txid, 1);
+        utxo_diff.add_utxo(&txid, 0, 1000, vec![1, 2, 3]);
+        utxo_diff.remove_utxo(&txid, 1);
 
         // Test serialization
         let serialized = bincode::serialize(&utxo_diff).expect("Failed to serialize");
@@ -189,7 +188,7 @@ mod tests {
         // Add many UTXOs
         for i in 0u32..1000 {
             let txid = Hash::new(&i.to_le_bytes());
-            utxo_diff.add_utxo(txid, 0, 1000 + i as u64, vec![(i % 256) as u8]);
+            utxo_diff.add_utxo(&txid, 0, 1000 + i as u64, vec![(i % 256) as u8]);
         }
 
         let mut utxo_set = UtxoSet::new();
@@ -264,7 +263,7 @@ mod tests {
                 // Each thread adds its own UTXOs
                 for i in 0..100 {
                     let txid = Hash::new(&format!("thread_{}_tx_{}", thread_id, i).as_bytes());
-                    local_diff.add_utxo(txid, 0, 1000 + i as u64, vec![thread_id as u8, i as u8]);
+                    local_diff.add_utxo(&txid, 0, 1000 + i as u64, vec![thread_id as u8, i as u8]);
                 }
 
                 // Apply local changes

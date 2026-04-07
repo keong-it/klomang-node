@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /// Storage Statistics & Monitoring Module
 /// Menangani semua operasi terkait metrics collection, monitoring, dan health checks
 ///

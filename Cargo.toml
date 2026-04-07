@@ -27,6 +27,8 @@ libp2p-tcp = "0.39.0"
 libp2p-websocket = "0.41.0"
 async-trait = "0.1"
 either = "1.9"
+bytes = "1.4"
+tokio-util = { version = "0.7", features = ["codec"] }
 void = "1"
 
 # RPC dependencies

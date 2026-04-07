@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Block validation logic for Klomang State Manager
 //!
 //! # IMPORTANT: Core Integration Update
@@ -24,7 +26,7 @@
 //!
 //! Legacy validation methods are preserved but not used in main flow.
 
-use super::types::{StateError, StateResult};
+use super::types::StateResult;
 use crate::storage::StorageHandle;
 use klomang_core::{BlockNode, Dag, Hash, UtxoSet};
 
@@ -49,18 +51,13 @@ pub trait BlockValidator {
     }
 
     /// Check consensus rules based on block height for backward compatibility
-    fn validate_consensus_transition(&self, block: &BlockNode) -> StateResult<()> {
-        let height = block.header.height;
+    fn validate_consensus_transition(&self, _block: &BlockNode) -> StateResult<()> {
+        // Note: BlockHeader doesn't have a height field directly; height is computed from parents
+        // This is a placeholder until proper height tracking is implemented
 
         // Example: Before block 100,000 use old rules, after use new rules
-        if height < 100_000 {
-            // Old consensus rules
-            // e.g., different emission schedule, different difficulty adjustment
-            log::debug!("Block {} using legacy consensus rules", block.header.id.to_hex());
-        } else {
-            // New consensus rules
-            log::debug!("Block {} using updated consensus rules", block.header.id.to_hex());
-        }
+        // For now, use new consensus rules
+        log::debug!("Block using updated consensus rules");
 
         Ok(())
     }

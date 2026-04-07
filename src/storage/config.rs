@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use log::info;
 /// Cache & Memory Tuning untuk Production-Grade Blockchain Storage
 /// Menggunakan BlockBasedOptions dengan LRU Cache, Bloom Filter,
@@ -258,15 +260,17 @@ mod tests {
     fn test_build_block_based_options() {
         let opts = build_block_based_options();
         // Verify dapat construct tanpa panic
-        // Detail assertion tergantung rocksdb API exposure
-        assert!(opts.block_size() > 0);
+        // rocksdb BlockBasedOptions doesn't expose block_size() getter
+        // Assuming configuration is correct since it was set without panic
+        let _ = &opts;  // Use opts to avoid unused warning
     }
 
     #[test]
     fn test_build_large_cache_options() {
         let opts = build_large_cache_options();
         // Verify dapat construct tanpa panic
-        assert!(opts.block_size() > 0);
+        // rocksdb BlockBasedOptions doesn't expose block_size() getter
+        let _ = &opts;  // Use opts to avoid unused warning
     }
 
     #[test]

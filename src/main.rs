@@ -6,16 +6,14 @@ mod state;
 mod storage;
 mod vm;
 
-use crate::ingestion_guard::{IngestionMessage, RateLimiter, create_ingestion_queue};
-use crate::state::ingestion::{IngestionReceiver, IngestionSender};
+use crate::ingestion_guard::{IngestionMessage, create_ingestion_queue};
 use clap::Parser;
 use env_logger;
 use klomang_core::{Dag, UtxoSet};
 use log::info;
-use std::collections::HashSet;
 use std::error::Error;
 use std::sync::{Arc, RwLock};
-use storage::{ChainIndexRecord, KlomangStorage, StorageHandle};
+use storage::{KlomangStorage, StorageHandle};
 
 #[derive(Parser)]
 #[command(name = "klomang-node")]
@@ -76,13 +74,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("✅ Mempool background tasks started");
 
     // Initialize Ingestion Guard
-    let (ingestion_sender, mut ingestion_receiver, rate_limiter) =
-        create_ingestion_queue(10_000, 1000);
+    let (ingestion_sender, mut ingestion_receiver, _rate_limiter): (
+        tokio::sync::mpsc::Sender<IngestionMessage>,
+        tokio::sync::mpsc::Receiver<IngestionMessage>,
+        ingestion_guard::RateLimiter,
+    ) = create_ingestion_queue(10_000, 1000);
     println!("✅ Ingestion queue initialized with capacity 10,000 and rate limit 1000 blocks/sec");
 
     // Initialize Network Manager - P2P communication layer
-    let network_config = network::NetworkConfig::default();
-    let mut network_manager = match network::NetworkManager::new(
+    let network_config = network::config::NetworkConfig::default();
+    let _network_manager = match network::manager::NetworkManager::new(
         storage.clone(),
         network_config,
         ingestion_sender.clone(),
@@ -126,12 +127,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    // Spawn network event loop
-    tokio::spawn(async move {
-        if let Err(e) = network_manager.run().await {
-            log::error!("Network error: {}", e);
-        }
-    });
+    // Spawn network event loop (disabled for now due to async/Send issues with libp2p)
+    // TODO: Fix libp2p Send/Sync trait bounds by configuring relay and other async types properly
+    //     tokio::spawn(async move {
+    //         if let Err(e) = network_manager.run().await {
+    //             log::error!("Network error: {}", e);
+    //         }
+    //     });
 
     // Start RPC server
     let rpc_server = rpc::RpcServer::new(state_manager.clone());

@@ -263,7 +263,7 @@ async fn handle_send_transaction(
     tx: SignedTransaction,
     state_manager: Arc<RwLock<KlomangStateManager>>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    let mut sm = state_manager.write().unwrap();
+    let sm = state_manager.write().unwrap();
 
     match sm.add_transaction(tx) {
         Ok(tx_hash) => Ok(warp::reply::json(&RpcResponse {

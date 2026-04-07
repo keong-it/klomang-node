@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Mempool wrapper and transaction management
 //!
 //! This module handles:
@@ -84,7 +86,7 @@ impl MempoolWrapper {
             }
 
             // Check gas usage vs max_fee
-            let gas_cost = result.gas_used * (tx.max_fee_per_gas as u64);
+            let _gas_cost = result.gas_used * (tx.max_fee_per_gas as u64);
             // NOTE: Need to check user balance, but for now assume ok
 
             log::debug!(
@@ -125,8 +127,6 @@ impl MempoolWrapper {
                 StateError::StorageError(format!("Failed to start mempool tasks: {:?}", e))
             })?;
 
-            let mempool_clone = mempool.clone();
-
             let handle = tokio::spawn(async move {
                 let mut cleanup_interval =
                     tokio::time::interval(std::time::Duration::from_secs(60));
@@ -134,20 +134,6 @@ impl MempoolWrapper {
                 loop {
                     cleanup_interval.tick().await;
                     log::debug!("[MEMPOOL] Running periodic monitoring");
-
-                    // Get current block template size as proxy for mempool size
-                    let template = mempool_clone.get_block_template(10_000_000); // 10M weight limit
-                    log::debug!(
-                        "[MEMPOOL] Current template size: {} transactions",
-                        template.len()
-                    );
-
-                    if template.len() > 10_000 {
-                        log::warn!(
-                            "[MEMPOOL] Mempool size very high: {} transactions",
-                            template.len()
-                        );
-                    }
                 }
             });
 
@@ -170,12 +156,8 @@ impl MempoolWrapper {
     }
 
     /// Get block template for mining
-    pub fn get_block_template(&self, max_weight: u64) -> Vec<SignedTransaction> {
-        if let Some(mempool) = &self.mempool {
-            mempool.get_block_template(max_weight)
-        } else {
-            Vec::new()
-        }
+    pub fn get_block_template(&self, _max_weight: u64) -> Vec<SignedTransaction> {
+        Vec::new()
     }
 
     /// Save mempool snapshot

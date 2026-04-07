@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Transaction Dependency Graph
 //!
 //! Manages transaction dependencies and topological ordering for proper

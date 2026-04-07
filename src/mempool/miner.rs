@@ -3,6 +3,8 @@
 //! Selects optimal transaction set for block templates based on fee,
 //! weight, and dependency ordering.
 
+#![allow(dead_code)]
+
 use klomang_core::{Hash, SignedTransaction};
 use std::collections::{BinaryHeap, HashMap, HashSet};
 

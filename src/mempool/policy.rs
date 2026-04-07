@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Transaction Policy Engine
 //!
 //! Handles fee estimation, RBF/CPFP rules, and transaction expiry management.
@@ -56,7 +58,7 @@ impl FeeEstimator {
     }
 
     /// Update fee estimates based on mempool state
-    pub fn update_estimates(&mut self, mempool_size: usize, density: f64) {
+    pub fn update_estimates(&mut self, _mempool_size: usize, density: f64) {
         self.density = density;
 
         // Dynamic base fee adjustment based on mempool congestion (>50% capacity triggers increase)
@@ -119,8 +121,8 @@ impl TransactionPolicy {
         // Check minimum fee
         // NOTE: fee field no longer available in klomang-core Transaction
         // Calculate fee from inputs and outputs instead
-        let mut total_input = 0u64;
-        for input in &tx.inputs {
+        let _total_input = 0u64;
+        for _input in &tx.inputs {
             // NOTE: UTXO value not available in SignedTransaction
             // This would need to be passed in or looked up from storage
         }
@@ -142,14 +144,14 @@ impl TransactionPolicy {
     }
 
     /// Check if transaction is an RBF attempt
-    fn is_rbf_attempt(&self, tx: &SignedTransaction) -> bool {
+    fn is_rbf_attempt(&self, _tx: &SignedTransaction) -> bool {
         // Check if any input is already spent by unconfirmed tx
         // Implementation would check against mempool
         false // Placeholder
     }
 
     /// Validate RBF rules
-    fn validate_rbf(&self, tx: &SignedTransaction) -> Result<(), MempoolError> {
+    fn validate_rbf(&self, _tx: &SignedTransaction) -> Result<(), MempoolError> {
         // Check fee increment
         // NOTE: fee field no longer available - RBF validation skipped for now
         // TODO: Implement proper RBF validation with new API
@@ -157,19 +159,19 @@ impl TransactionPolicy {
     }
 
     /// Check if transaction has unconfirmed parents
-    fn has_unconfirmed_parents(&self, tx: &SignedTransaction) -> bool {
+    fn has_unconfirmed_parents(&self, _tx: &SignedTransaction) -> bool {
         // Check if any input comes from unconfirmed tx
         false // Placeholder
     }
 
     /// Validate CPFP rules
-    fn validate_cpfp(&self, tx: &SignedTransaction) -> Result<(), MempoolError> {
+    fn validate_cpfp(&self, _tx: &SignedTransaction) -> Result<(), MempoolError> {
         // Ensure total package fee is sufficient
         Ok(()) // Placeholder
     }
 
     /// Get fee of conflicting transaction
-    fn get_conflicting_fee(&self, tx: &SignedTransaction) -> u64 {
+    fn get_conflicting_fee(&self, _tx: &SignedTransaction) -> u64 {
         1000 // Placeholder
     }
 
@@ -197,6 +199,6 @@ impl TransactionPolicy {
 
     /// Update fee estimator
     pub fn update_fee_estimator(&mut self, mempool_size: usize, density: f64) {
-        self.fee_estimator.update_estimates(mempool_size, density);
+        self.fee_estimator.write().unwrap().update_estimates(mempool_size, density);
     }
 }

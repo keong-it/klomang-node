@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /// Transaction Operations Module
 /// Menangani semua operasi terkait penyimpanan dan pengambilan transactions di blockchain
 ///

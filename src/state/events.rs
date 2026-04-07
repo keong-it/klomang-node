@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Event management system for Klomang Node state
 //!
 //! This module handles:
@@ -125,7 +127,7 @@ impl EventOps {
 
         // Store in a dedicated event log with timestamp prefix
         let timestamp = EventOps::current_timestamp_ms();
-        let event_key = format!("event:{}", timestamp);
+        let _event_key = format!("event:{}", timestamp);
 
         log::debug!(
             "[EVENT] Persisted event: {} ({} bytes)",
@@ -145,7 +147,7 @@ impl EventOps {
 
     /// Load recent events from storage
     pub fn load_event_history(
-        storage: &StorageHandle,
+        _storage: &StorageHandle,
         limit: usize,
     ) -> StateResult<Vec<KlomangEvent>> {
         // This is a conceptual implementation.
